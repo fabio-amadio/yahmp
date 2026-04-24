@@ -2,3 +2,7 @@ root_path: ../../../../assets/motions
 subfolders:
   - name: g1_omomo_amass_clean
     weight: 1.0
+  - name: g1_mpc_ref
+    weight: 10.0
+  - name: g1_mpc_basic_ref
+    weight: 20.0

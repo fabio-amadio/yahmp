@@ -8,6 +8,8 @@
 
 The training pipeline builds upon [`mjlab`](https://github.com/mujocolab/mjlab).
 
+https://github.com/user-attachments/assets/d53fc62a-8915-48dd-914e-4514efe26a1d
+
 ## Installation
 
 First, install [`uv`](https://docs.astral.sh/uv/):

@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+logs/
+/.vscode/
+*.mp4
+*.npz
+*.csv
+wandb/
+assets/logs/

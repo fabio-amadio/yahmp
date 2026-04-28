@@ -245,7 +245,7 @@ def motion_teacher_command(env: ManagerBasedRlEnv, command_name: str) -> torch.T
   return motion_command_representation(env, command_name, representation_name="teacher")
 
 
-def motion_teacher_policy_command(
+def motion_teacher_actor_command(
   env: ManagerBasedRlEnv, command_name: str
 ) -> torch.Tensor:
   return torch.cat(
@@ -255,6 +255,13 @@ def motion_teacher_policy_command(
     ),
     dim=-1,
   )
+
+
+def motion_teacher_policy_command(
+  env: ManagerBasedRlEnv, command_name: str
+) -> torch.Tensor:
+  """Backward-compatible alias for the teacher actor command representation."""
+  return motion_teacher_actor_command(env, command_name)
 
 
 def motion_first_step_command(
@@ -293,6 +300,26 @@ def _yahmp_current_observation(
   )
 
 
+def _yahmp_current_observation_with_privileged(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+) -> torch.Tensor:
+  """Return YAHMP's current block augmented with privileged observations."""
+  return torch.cat(
+    (
+      _yahmp_current_observation(env, command_name),
+      builtin_mdp.builtin_sensor(env, sensor_name="robot/imu_lin_vel"),
+      motion_anchor_pos_b(env, command_name),
+      motion_anchor_ori_b(env, command_name),
+      robot_body_pos_b(env, command_name),
+      robot_body_ori_b(env, command_name),
+      feet_contact_mask(env, sensor_name="feet_ground_contact"),
+      motion_friction_coeff(env, asset_cfg=SceneEntityCfg("robot", geom_names=())),
+    ),
+    dim=-1,
+  )
+
+
 class YahmpObservationHistory:
   """Time-major history buffer for YAHMP actor observations.
 
@@ -304,6 +331,7 @@ class YahmpObservationHistory:
   def __init__(self, cfg, env: ManagerBasedRlEnv):
     self.command_name = cfg.params["command_name"]
     self.history_length = int(cfg.params["history_length"])
+    self.include_privileged = bool(cfg.params.get("include_privileged", False))
     if self.history_length <= 0:
       raise ValueError("YahmpObservationHistory requires history_length > 0.")
     self._history: torch.Tensor | None = None
@@ -322,10 +350,15 @@ class YahmpObservationHistory:
     env: ManagerBasedRlEnv,
     command_name: str | None = None,
     history_length: int | None = None,
+    include_privileged: bool | None = None,
   ) -> torch.Tensor:
     del history_length  # Config-time validation keeps this fixed.
+    del include_privileged  # Config-time validation keeps this fixed.
     active_command_name = command_name or self.command_name
-    current = _yahmp_current_observation(env, active_command_name)
+    if self.include_privileged:
+      current = _yahmp_current_observation_with_privileged(env, active_command_name)
+    else:
+      current = _yahmp_current_observation(env, active_command_name)
 
     if self._history is None:
       self._history = current[:, None, :].repeat(1, self.history_length, 1)

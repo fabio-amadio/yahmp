@@ -254,6 +254,7 @@ class YahmpFutureActorModel(MLPModel):
     motion_obs_dim: int = 0,
     motion_steps: int = 1,
     proprio_obs_dim: int = 0,
+    history_input_dim: int | None = None,
     history_steps: int = 10,
     motion_latent_dim: int = 64,
     history_latent_dim: int = 64,
@@ -268,6 +269,9 @@ class YahmpFutureActorModel(MLPModel):
     self.motion_obs_dim = int(motion_obs_dim)
     self.motion_steps = int(motion_steps)
     self.proprio_obs_dim = int(proprio_obs_dim)
+    self.history_input_dim = (
+      int(history_input_dim) if history_input_dim is not None else None
+    )
     self.history_steps = int(history_steps)
     self.motion_latent_dim = int(motion_latent_dim)
     self.history_latent_dim = int(history_latent_dim)
@@ -281,6 +285,11 @@ class YahmpFutureActorModel(MLPModel):
       raise ValueError(
         f"`proprio_obs_dim` must be positive, got {self.proprio_obs_dim}."
       )
+    if self.history_input_dim is not None and self.history_input_dim <= 0:
+      raise ValueError(
+        "`history_input_dim` must be positive when provided, got "
+        f"{self.history_input_dim}."
+      )
     if self.history_steps <= 0:
       raise ValueError(f"`history_steps` must be positive, got {self.history_steps}.")
     if self.motion_obs_dim % self.motion_steps != 0:
@@ -291,7 +300,10 @@ class YahmpFutureActorModel(MLPModel):
 
     self.single_motion_obs_dim = self.motion_obs_dim // self.motion_steps
     self.current_obs_dim = self.single_motion_obs_dim + self.proprio_obs_dim
-    self.history_obs_dim = self.current_obs_dim * self.history_steps
+    self.history_input_dim = (
+      self.current_obs_dim if self.history_input_dim is None else self.history_input_dim
+    )
+    self.history_obs_dim = self.history_input_dim * self.history_steps
 
     super().__init__(
       obs=obs,
@@ -323,7 +335,7 @@ class YahmpFutureActorModel(MLPModel):
       projection_dim=self.motion_latent_dim,
     )
     self.history_encoder = MotionEncoder(
-      input_dim_per_step=self.current_obs_dim,
+      input_dim_per_step=self.history_input_dim,
       num_steps=self.history_steps,
       activation=activation,
       conv_channels=history_conv_channels,

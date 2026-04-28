@@ -6,6 +6,7 @@ from yahmp.rl import (
   YahmpActionMatchingPpoAlgorithmCfg,
   YahmpKlMatchingPpoAlgorithmCfg,
   YahmpOnPolicyRunnerCfg,
+  YahmpStudentOnPolicyRunnerCfg,
 )
 
 
@@ -53,7 +54,7 @@ def unitree_g1_yahmp_teacher_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
     save_interval=500,
     num_steps_per_env=24,
     max_iterations=30_000,
-    obs_groups={"actor": ("policy",), "critic": ("critic",)},
+    obs_groups={"actor": ("actor",), "critic": ("critic",)},
   )
 
 
@@ -147,8 +148,10 @@ def unitree_g1_yahmp_future_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
   )
 
 
-def unitree_g1_yahmp_student_action_matching_rl_runner_cfg() -> YahmpOnPolicyRunnerCfg:
-  return YahmpOnPolicyRunnerCfg(
+def unitree_g1_yahmp_student_action_matching_rl_runner_cfg() -> (
+  YahmpStudentOnPolicyRunnerCfg
+):
+  return YahmpStudentOnPolicyRunnerCfg(
     seed=1,
     actor=RslRlModelCfg(
       class_name="yahmp.rl.student_teacher_policy:YahmpStudentTeacherActorModel",
@@ -194,13 +197,15 @@ def unitree_g1_yahmp_student_action_matching_rl_runner_cfg() -> YahmpOnPolicyRun
     obs_groups={
       "actor": ("actor",),
       "critic": ("critic",),
-      "teacher": ("teacher_policy",),
+      "teacher": ("teacher_actor",),
     },
   )
 
 
-def unitree_g1_yahmp_student_kl_matching_rl_runner_cfg() -> YahmpOnPolicyRunnerCfg:
-  return YahmpOnPolicyRunnerCfg(
+def unitree_g1_yahmp_student_kl_matching_rl_runner_cfg() -> (
+  YahmpStudentOnPolicyRunnerCfg
+):
+  return YahmpStudentOnPolicyRunnerCfg(
     seed=1,
     actor=RslRlModelCfg(
       class_name="yahmp.rl.student_teacher_policy:YahmpStudentTeacherActorModel",
@@ -245,6 +250,6 @@ def unitree_g1_yahmp_student_kl_matching_rl_runner_cfg() -> YahmpOnPolicyRunnerC
     obs_groups={
       "actor": ("actor",),
       "critic": ("critic",),
-      "teacher": ("teacher_policy",),
+      "teacher": ("teacher_actor",),
     },
   )

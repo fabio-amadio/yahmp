@@ -8,7 +8,7 @@
 
 The training pipeline builds upon [`mjlab`](https://github.com/mujocolab/mjlab).
 
-https://github.com/user-attachments/assets/d53fc62a-8915-48dd-914e-4514efe26a1d
+<https://github.com/user-attachments/assets/d53fc62a-8915-48dd-914e-4514efe26a1d>
 
 ## Installation
 
@@ -70,6 +70,18 @@ In addition to `Mjlab-YAHMP-Unitree-G1`, this project also includes environments
 - `Mjlab-YAHMP-Teacher-Unitree-G1`: privileged teacher example  
 - `Mjlab-YAHMP-Student-RL+Action-Matching-Unitree-G1`: student trained via RL + Action-Matching distillation  
 - `Mjlab-YAHMP-Student-RL+KL-Matching-Unitree-G1`: student trained via RL + KL-Matching distillation
+
+```bash
+# 1. Train the teacher
+uv run train Mjlab-YAHMP-Teacher-Unitree-G1 --env.scene.num-envs 8192
+
+# 2. Train the student from the teacher W&B run
+uv run train Mjlab-YAHMP-Student-RL+Action-Matching-Unitree-G1 \
+  --env.scene.num-envs 8192 \
+  --agent.teacher-wandb-run-path entity/project/teacher_run_id
+```
+
+To resume a student run from W&B, use the student run path with `--agent.resume True --wandb-run-path entity/project/student_run_id`. You only need `--agent.teacher-wandb-run-path ...` again if you want to override the embedded teacher with a different one.
 
 ## Development
 

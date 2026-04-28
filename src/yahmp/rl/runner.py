@@ -16,6 +16,8 @@ from yahmp.rl.reward_logging import (
   install_merged_timeout_termination_logging,
   install_yahmp_logger,
 )
+from yahmp.rl.student_teacher_policy import YahmpStudentTeacherActorModel
+from yahmp.utils import get_wandb_checkpoint_path
 
 
 class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
@@ -144,10 +146,15 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
         name: int(math.prod(dims))
         for name, dims in zip(actor_terms, actor_term_dims, strict=False)
       }
+      history_term_cfg = observation_manager._group_obs_term_cfgs[actor_group][
+        actor_terms.index("history")
+      ]
+      history_length = int(
+        getattr(history_term_cfg, "params", {}).get("history_length", 1)
+      )
       history_dim = flat_term_dims["history"]
       current_dim = int(obs_dims[actor_group][0]) - int(motion_dims[0]) - history_dim
-      single_motion_dim = motion_dims[0] // max(motion_dims[1], 1)
-      history_step_dim = single_motion_dim + current_dim
+      history_step_dim = flat_term_dims["history"] // max(history_length, 1)
       if history_dim % history_step_dim != 0:
         raise ValueError(
           "YahmpFutureActorModel history dimension mismatch: "
@@ -156,6 +163,7 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
       actor_cfg.setdefault("motion_obs_dim", motion_dims[0])
       actor_cfg.setdefault("motion_steps", motion_dims[1])
       actor_cfg.setdefault("proprio_obs_dim", current_dim)
+      actor_cfg.setdefault("history_input_dim", history_step_dim)
       actor_cfg.setdefault("history_steps", max(history_dim // history_step_dim, 1))
       actor_cfg.setdefault("motion_latent_dim", 64)
       actor_cfg.setdefault("history_latent_dim", 128)
@@ -186,7 +194,7 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
       observation_manager = env.unwrapped.observation_manager
       obs_dims = observation_manager.group_obs_dim
       actor_group = cls._obs_group_name(train_cfg, "actor", "actor")
-      teacher_group = cls._obs_group_name(train_cfg, "teacher", "teacher_policy")
+      teacher_group = cls._obs_group_name(train_cfg, "teacher", "teacher_actor")
       actor_terms = observation_manager.active_terms[actor_group]
       actor_term_dims = observation_manager._group_obs_term_dim[actor_group]
       flat_term_dims = {
@@ -307,3 +315,118 @@ def _normalize_gaussian_distribution_state_dict(state_dict: dict[str, Any]) -> N
     state_dict["distribution.std_param"] = state_dict.pop("std")
   if "log_std" in state_dict:
     state_dict["distribution.log_std_param"] = state_dict.pop("log_std")
+
+
+class YahmpStudentOnPolicyRunner(YahmpOnPolicyRunner):
+  """On-policy runner with explicit teacher checkpoint loading for student tasks."""
+
+  def __init__(
+    self,
+    env,
+    train_cfg: dict,
+    log_dir: str | None = None,
+    device: str = "cpu",
+    registry_name: str | None = None,
+  ) -> None:
+    self._yahmp_log_dir = Path(log_dir).resolve() if log_dir is not None else None
+    super().__init__(env, train_cfg, log_dir, device, registry_name=registry_name)
+    self._maybe_load_teacher_checkpoint()
+
+  def _teacher_checkpoint_path(self) -> Path | None:
+    checkpoint_file = self.cfg.get("teacher_checkpoint_file")
+    if checkpoint_file:
+      checkpoint_path = Path(str(checkpoint_file)).expanduser().resolve()
+      if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Teacher checkpoint file not found: {checkpoint_path}")
+      print(f"[INFO]: Using local teacher checkpoint: {checkpoint_path}")
+      return checkpoint_path
+
+    wandb_run_path = self.cfg.get("teacher_wandb_run_path")
+    if not wandb_run_path:
+      return None
+
+    if self._yahmp_log_dir is None:
+      raise ValueError("Cannot resolve teacher W&B checkpoint without a log directory.")
+    log_root_path = self._yahmp_log_dir.parent
+    checkpoint_path, was_cached = get_wandb_checkpoint_path(
+      log_root_path,
+      Path(str(wandb_run_path)),
+      self.cfg.get("teacher_wandb_checkpoint_name"),
+    )
+    run_id = checkpoint_path.parent.name
+    checkpoint_name = checkpoint_path.name
+    cached_str = "cached" if was_cached else "downloaded"
+    print(
+      "[INFO]: Resolved teacher checkpoint: "
+      f"{checkpoint_name} (run: {run_id}, {cached_str})"
+    )
+    return checkpoint_path
+
+  def _maybe_load_teacher_checkpoint(self) -> None:
+    actor = getattr(self.alg, "actor", None)
+    if not isinstance(actor, YahmpStudentTeacherActorModel):
+      if any(
+        self.cfg.get(key)
+        for key in (
+          "teacher_wandb_run_path",
+          "teacher_wandb_checkpoint_name",
+          "teacher_checkpoint_file",
+        )
+      ):
+        raise ValueError(
+          "Teacher checkpoint options are only supported for "
+          "YahmpStudentTeacherActorModel student runs."
+        )
+      return
+
+    checkpoint_path = self._teacher_checkpoint_path()
+    if checkpoint_path is None:
+      return
+
+    loaded_dict = torch.load(
+      checkpoint_path, map_location=self.device, weights_only=False
+    )
+    teacher_state_dict = loaded_dict.get("teacher_state_dict")
+    if teacher_state_dict is None:
+      teacher_state_dict = loaded_dict.get("actor_state_dict")
+    if teacher_state_dict is None:
+      raise ValueError(
+        "Teacher checkpoint does not contain `teacher_state_dict` or "
+        "`actor_state_dict`."
+      )
+    _normalize_gaussian_distribution_state_dict(teacher_state_dict)
+    actor.teacher.load_state_dict(
+      teacher_state_dict,
+      strict=bool(self.cfg.get("teacher_strict_load", True)),
+    )
+    actor.loaded_teacher = True
+    actor.teacher.eval()
+
+  def load(
+    self,
+    path: str,
+    load_cfg: dict | None = None,
+    strict: bool = True,
+    map_location: str | None = None,
+  ) -> dict:
+    loaded_dict = torch.load(path, map_location=map_location, weights_only=False)
+    actor_sd = loaded_dict.get("actor_state_dict", {})
+    _normalize_gaussian_distribution_state_dict(actor_sd)
+
+    load_iteration = self.alg.load(loaded_dict, load_cfg, strict)
+    if load_iteration:
+      self.current_learning_iteration = loaded_dict["iter"]
+
+    infos = loaded_dict["infos"]
+    if load_iteration and infos and "env_state" in infos:
+      self.env.unwrapped.common_step_counter = infos["env_state"]["common_step_counter"]
+
+    actor = getattr(self.alg, "actor", None)
+    if isinstance(actor, YahmpStudentTeacherActorModel):
+      if any(key.startswith("teacher.") for key in actor_sd):
+        actor.loaded_teacher = True
+        actor.teacher.eval()
+    # Allow an explicit teacher checkpoint to override embedded teacher weights
+    # from a resumed student checkpoint.
+    self._maybe_load_teacher_checkpoint()
+    return infos

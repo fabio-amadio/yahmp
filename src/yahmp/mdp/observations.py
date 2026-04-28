@@ -278,7 +278,7 @@ def motion_first_step_command(
   return command_obs.reshape(env.num_envs, num_steps, -1)[:, 0]
 
 
-def _yahmp_current_observation(
+def _current_observation(
   env: ManagerBasedRlEnv,
   command_name: str,
 ) -> torch.Tensor:
@@ -300,14 +300,14 @@ def _yahmp_current_observation(
   )
 
 
-def _yahmp_current_observation_with_privileged(
+def _current_observation_with_privileged(
   env: ManagerBasedRlEnv,
   command_name: str,
 ) -> torch.Tensor:
   """Return YAHMP's current block augmented with privileged observations."""
   return torch.cat(
     (
-      _yahmp_current_observation(env, command_name),
+      _current_observation(env, command_name),
       builtin_mdp.builtin_sensor(env, sensor_name="robot/imu_lin_vel"),
       motion_anchor_pos_b(env, command_name),
       motion_anchor_ori_b(env, command_name),
@@ -356,9 +356,9 @@ class YahmpObservationHistory:
     del include_privileged  # Config-time validation keeps this fixed.
     active_command_name = command_name or self.command_name
     if self.include_privileged:
-      current = _yahmp_current_observation_with_privileged(env, active_command_name)
+      current = _current_observation_with_privileged(env, active_command_name)
     else:
-      current = _yahmp_current_observation(env, active_command_name)
+      current = _current_observation(env, active_command_name)
 
     if self._history is None:
       self._history = current[:, None, :].repeat(1, self.history_length, 1)

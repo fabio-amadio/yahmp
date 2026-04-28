@@ -6,12 +6,12 @@ from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationT
 from yahmp import mdp
 from yahmp.mdp import FutureJointRefAnchorRpMotionCommandCfg
 from yahmp.yahmp_env_cfg import (
-  _yahmp_history_term,
-  _yahmp_motion_command_kwargs,
-  _yahmp_privileged_terms,
-  _yahmp_proprio_critic_terms,
-  _yahmp_proprio_policy_terms,
-  make_yahmp_env_cfg,
+  _history_term,
+  _motion_command_kwargs,
+  _privileged_terms,
+  _proprio_critic_terms,
+  _proprio_policy_terms,
+  make_env_cfg,
 )
 
 FUTURE_STEPS = (
@@ -30,28 +30,28 @@ FUTURE_STEPS = (
 )
 
 
-def _yahmp_future_motion_term() -> ObservationTermCfg:
+def _future_motion_term() -> ObservationTermCfg:
   return ObservationTermCfg(
     func=mdp.generated_commands,
     params={"command_name": "motion"},
   )
 
 
-def make_yahmp_future_env_cfg() -> ManagerBasedRlEnvCfg:
+def make_future_env_cfg() -> ManagerBasedRlEnvCfg:
   """Create the YAHMP task template with future-motion and history encoders."""
-  cfg = make_yahmp_env_cfg()
+  cfg = make_env_cfg()
 
   actor_terms = {
-    "command": _yahmp_future_motion_term(),
-    **_yahmp_proprio_policy_terms(),
-    "history": _yahmp_history_term(),
+    "command": _future_motion_term(),
+    **_proprio_policy_terms(),
+    "history": _history_term(),
   }
 
   critic_terms = {
-    "command": _yahmp_future_motion_term(),
-    **_yahmp_proprio_critic_terms(),
-    "policy_history": _yahmp_history_term(),
-    **_yahmp_privileged_terms(),
+    "command": _future_motion_term(),
+    **_proprio_critic_terms(),
+    "policy_history": _history_term(),
+    **_privileged_terms(),
   }
 
   cfg.observations = {
@@ -68,7 +68,7 @@ def make_yahmp_future_env_cfg() -> ManagerBasedRlEnvCfg:
   }
 
   cfg.commands["motion"] = FutureJointRefAnchorRpMotionCommandCfg(
-    **_yahmp_motion_command_kwargs(),
+    **_motion_command_kwargs(),
     command_step_offsets=(0, *FUTURE_STEPS),
   )
 

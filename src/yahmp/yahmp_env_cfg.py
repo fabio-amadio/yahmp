@@ -19,7 +19,7 @@ from mjlab.viewer import ViewerConfig
 from yahmp import mdp
 from yahmp.mdp import JointRefAnchorRpMotionCommandCfg
 
-YAHMP_HISTORY_LENGTH = 10
+HISTORY_LENGTH = 10
 
 PUSH_VELOCITY_RANGE = {
   "x": (-0.5, 0.5),
@@ -31,7 +31,7 @@ PUSH_VELOCITY_RANGE = {
 }
 
 
-def _yahmp_motion_command_kwargs() -> dict[str, object]:
+def _motion_command_kwargs() -> dict[str, object]:
   return {
     "entity_name": "robot",
     "resampling_time_range": (1.0e9, 1.0e9),
@@ -55,7 +55,7 @@ def _yahmp_motion_command_kwargs() -> dict[str, object]:
   }
 
 
-def _yahmp_proprio_policy_terms() -> dict[str, ObservationTermCfg]:
+def _proprio_policy_terms() -> dict[str, ObservationTermCfg]:
   return {
     "base_ang_vel": ObservationTermCfg(
       func=mdp.builtin_sensor,
@@ -78,7 +78,7 @@ def _yahmp_proprio_policy_terms() -> dict[str, ObservationTermCfg]:
   }
 
 
-def _yahmp_proprio_critic_terms() -> dict[str, ObservationTermCfg]:
+def _proprio_critic_terms() -> dict[str, ObservationTermCfg]:
   return {
     "base_ang_vel": ObservationTermCfg(
       func=mdp.builtin_sensor,
@@ -91,7 +91,7 @@ def _yahmp_proprio_critic_terms() -> dict[str, ObservationTermCfg]:
   }
 
 
-def _yahmp_privileged_terms() -> dict[str, ObservationTermCfg]:
+def _privileged_terms() -> dict[str, ObservationTermCfg]:
   return {
     "base_lin_vel": ObservationTermCfg(
       func=mdp.builtin_sensor,
@@ -124,25 +124,25 @@ def _yahmp_privileged_terms() -> dict[str, ObservationTermCfg]:
   }
 
 
-def _yahmp_current_motion_term() -> ObservationTermCfg:
+def _current_motion_term() -> ObservationTermCfg:
   return ObservationTermCfg(
     func=mdp.motion_first_step_command,
     params={"command_name": "motion"},
   )
 
 
-def _yahmp_history_term(*, include_privileged: bool = False) -> ObservationTermCfg:
+def _history_term(*, include_privileged: bool = False) -> ObservationTermCfg:
   return ObservationTermCfg(
     func=mdp.YahmpObservationHistory,
     params={
       "command_name": "motion",
-      "history_length": YAHMP_HISTORY_LENGTH,
+      "history_length": HISTORY_LENGTH,
       "include_privileged": include_privileged,
     },
   )
 
 
-def _yahmp_actions() -> dict[str, ActionTermCfg]:
+def _actions() -> dict[str, ActionTermCfg]:
   return {
     "joint_pos": mdp.ResidualJointPositionActionCfg(
       entity_name="robot",
@@ -154,7 +154,7 @@ def _yahmp_actions() -> dict[str, ActionTermCfg]:
   }
 
 
-def _yahmp_events() -> dict[str, EventTermCfg]:
+def _events() -> dict[str, EventTermCfg]:
   return {
     "push_robot": EventTermCfg(
       func=mdp.push_by_setting_velocity,
@@ -245,7 +245,7 @@ def _yahmp_events() -> dict[str, EventTermCfg]:
   }
 
 
-def _yahmp_rewards() -> dict[str, RewardTermCfg]:
+def _rewards() -> dict[str, RewardTermCfg]:
   return {
     "motion_global_root_pos": RewardTermCfg(
       func=tracking_mdp.motion_global_anchor_position_error_exp,
@@ -318,7 +318,7 @@ def _yahmp_rewards() -> dict[str, RewardTermCfg]:
   }
 
 
-def _yahmp_terminations() -> dict[str, TerminationTermCfg]:
+def _terminations() -> dict[str, TerminationTermCfg]:
   return {
     "time_out": TerminationTermCfg(
       func=mdp.time_out,
@@ -352,19 +352,19 @@ def _yahmp_terminations() -> dict[str, TerminationTermCfg]:
   }
 
 
-def make_yahmp_env_cfg() -> ManagerBasedRlEnvCfg:
+def make_env_cfg() -> ManagerBasedRlEnvCfg:
   """Create the YAHMP direct-PPO task template with history encoding only."""
   actor_terms = {
-    "command": _yahmp_current_motion_term(),
-    **_yahmp_proprio_policy_terms(),
-    "history": _yahmp_history_term(),
+    "command": _current_motion_term(),
+    **_proprio_policy_terms(),
+    "history": _history_term(),
   }
 
   critic_terms = {
-    "command": _yahmp_current_motion_term(),
-    **_yahmp_proprio_critic_terms(),
-    "policy_history": _yahmp_history_term(),
-    **_yahmp_privileged_terms(),
+    "command": _current_motion_term(),
+    **_proprio_critic_terms(),
+    "policy_history": _history_term(),
+    **_privileged_terms(),
   }
 
   observations = {
@@ -381,18 +381,18 @@ def make_yahmp_env_cfg() -> ManagerBasedRlEnvCfg:
   }
 
   commands: dict[str, CommandTermCfg] = {
-    "motion": JointRefAnchorRpMotionCommandCfg(**_yahmp_motion_command_kwargs())
+    "motion": JointRefAnchorRpMotionCommandCfg(**_motion_command_kwargs())
   }
 
   return ManagerBasedRlEnvCfg(
     scene=SceneCfg(terrain=TerrainEntityCfg(terrain_type="plane"), num_envs=1),
     observations=observations,
-    actions=_yahmp_actions(),
+    actions=_actions(),
     commands=commands,
-    events=_yahmp_events(),
+    events=_events(),
     curriculum={},
-    rewards=_yahmp_rewards(),
-    terminations=_yahmp_terminations(),
+    rewards=_rewards(),
+    terminations=_terminations(),
     viewer=ViewerConfig(
       origin_type=ViewerConfig.OriginType.ASSET_BODY,
       entity_name="robot",

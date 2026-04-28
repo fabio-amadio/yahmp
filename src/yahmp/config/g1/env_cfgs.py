@@ -19,10 +19,10 @@ from yahmp.mdp import (
   JointRefAnchorRpMotionCommandCfg,
   TeacherStudentJointRefAnchorRpMotionCommandCfg,
 )
-from yahmp.yahmp_env_cfg import make_yahmp_env_cfg
-from yahmp.yahmp_future_env_cfg import make_yahmp_future_env_cfg
-from yahmp.yahmp_student_env_cfg import make_yahmp_student_env_cfg
-from yahmp.yahmp_teacher_env_cfg import make_yahmp_teacher_env_cfg
+from yahmp.yahmp_env_cfg import make_env_cfg
+from yahmp.yahmp_future_env_cfg import make_future_env_cfg
+from yahmp.yahmp_student_env_cfg import make_student_env_cfg
+from yahmp.yahmp_teacher_env_cfg import make_teacher_env_cfg
 
 DEFAULT_YAHMP_MOTION_SOURCE = str(
   Path(__file__).resolve().with_name("motion_data_cfg.yaml")
@@ -207,25 +207,25 @@ def unitree_g1_yahmp_teacher_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
   """Create the Unitree G1 YAHMP teacher configuration."""
-  return _apply_unitree_g1_overrides(make_yahmp_teacher_env_cfg(), play=play)
+  return _apply_unitree_g1_overrides(make_teacher_env_cfg(), play=play)
 
 
 def unitree_g1_yahmp_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
   """Create the Unitree G1 YAHMP direct-training configuration."""
-  return _apply_unitree_g1_overrides(make_yahmp_env_cfg(), play=play)
+  return _apply_unitree_g1_overrides(make_env_cfg(), play=play)
 
 
 def unitree_g1_yahmp_future_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
   """Create the Unitree G1 YAHMP future-encoder configuration."""
-  return _apply_unitree_g1_overrides(make_yahmp_future_env_cfg(), play=play)
+  return _apply_unitree_g1_overrides(make_future_env_cfg(), play=play)
 
 
 def unitree_g1_yahmp_student_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
   """Create the Unitree G1 YAHMP student-teacher configuration."""
-  return _apply_unitree_g1_overrides(make_yahmp_student_env_cfg(), play=play)
+  return _apply_unitree_g1_overrides(make_student_env_cfg(), play=play)

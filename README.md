@@ -38,7 +38,7 @@ The default motion configuration [`src/yahmp/config/g1/motion_data_cfg.yaml`](sr
 
 ## Quick Checks
 
-Smoke-test the teacher scene with a zero-action agent:
+Smoke-test the base YAHMP scene with a zero-action agent:
 
 ```bash
 uv run play Mjlab-YAHMP-Unitree-G1 --agent zero
@@ -64,6 +64,16 @@ uv run python -m yahmp.scripts.deploy.run_yahmp_onnx_mujoco \
 Utility scripts for data conversion, ONNX export, deployment, evaluation, and workflow helpers live under [`src/yahmp/scripts`](src/yahmp/scripts). See the dedicated guide at [`src/yahmp/scripts/README.md`](src/yahmp/scripts/README.md).
 
 ## Extras
+
+### YAHMP-Future
+
+`Mjlab-YAHMP-Future-Unitree-G1` is a YAHMP variant that augments the base policy with a future-motion encoder. The actor still receives the current motion reference and proprioceptive observations directly, but it also encodes a short horizon of future motion references, which can help anticipate upcoming motion changes.
+
+```bash
+uv run train Mjlab-YAHMP-Future-Unitree-G1 --env.scene.num-envs 8192
+```
+
+### Teacher-Student pipeline
 
 In addition to `Mjlab-YAHMP-Unitree-G1`, this project also includes environments that together form an example Teacher–Student training pipeline:
 

@@ -176,15 +176,83 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
       actor_cfg.setdefault("layer_norm", True)
 
     if (
+      critic_class == "yahmp.rl.policy:YahmpCriticModel" and motion_dims is not None
+    ):
+      observation_manager = env.unwrapped.observation_manager
+      obs_dims = observation_manager.group_obs_dim
+      critic_group = cls._obs_group_name(train_cfg, "critic", "critic")
+      critic_terms = observation_manager.active_terms[critic_group]
+      critic_term_dims = observation_manager._group_obs_term_dim[critic_group]
+      flat_term_dims = {
+        name: int(math.prod(dims))
+        for name, dims in zip(critic_terms, critic_term_dims, strict=False)
+      }
+      command_dim = flat_term_dims["command"]
+      history_dim = flat_term_dims["policy_history"]
+      proprio_dim = flat_term_dims["base_ang_vel"] + flat_term_dims["projected_gravity"]
+      proprio_dim += flat_term_dims["joint_pos"] + flat_term_dims["joint_vel"]
+      proprio_dim += flat_term_dims["actions"]
+      privileged_dim = int(obs_dims[critic_group][0]) - command_dim - proprio_dim - history_dim
+      history_step_dim = command_dim + proprio_dim
+      if history_dim % history_step_dim != 0:
+        raise ValueError(
+          "YahmpCriticModel history dimension mismatch: "
+          f"history_dim={history_dim}, history_step_dim={history_step_dim}."
+        )
+      critic_cfg.setdefault("current_motion_obs_dim", command_dim)
+      critic_cfg.setdefault("proprio_obs_dim", proprio_dim)
+      critic_cfg.setdefault("privileged_obs_dim", privileged_dim)
+      critic_cfg.setdefault("history_steps", max(history_dim // history_step_dim, 1))
+      critic_cfg.setdefault("history_latent_dim", 128)
+      critic_cfg.setdefault("history_conv_channels", (64, 32))
+      critic_cfg.setdefault("history_conv_kernel_sizes", (4, 2))
+      critic_cfg.setdefault("history_conv_strides", (2, 1))
+      critic_cfg.setdefault("layer_norm", True)
+
+    if (
       critic_class == "yahmp.rl.policy:YahmpFutureCriticModel"
       and motion_dims is not None
     ):
+      observation_manager = env.unwrapped.observation_manager
+      obs_dims = observation_manager.group_obs_dim
+      critic_group = cls._obs_group_name(train_cfg, "critic", "critic")
+      critic_terms = observation_manager.active_terms[critic_group]
+      critic_term_dims = observation_manager._group_obs_term_dim[critic_group]
+      flat_term_dims = {
+        name: int(math.prod(dims))
+        for name, dims in zip(critic_terms, critic_term_dims, strict=False)
+      }
+      history_term_cfg = observation_manager._group_obs_term_cfgs[critic_group][
+        critic_terms.index("policy_history")
+      ]
+      history_length = int(
+        getattr(history_term_cfg, "params", {}).get("history_length", 1)
+      )
+      history_dim = flat_term_dims["policy_history"]
+      proprio_dim = flat_term_dims["base_ang_vel"] + flat_term_dims["projected_gravity"]
+      proprio_dim += flat_term_dims["joint_pos"] + flat_term_dims["joint_vel"]
+      proprio_dim += flat_term_dims["actions"]
+      privileged_dim = int(obs_dims[critic_group][0]) - int(motion_dims[0]) - proprio_dim - history_dim
+      history_step_dim = flat_term_dims["policy_history"] // max(history_length, 1)
+      if history_dim % history_step_dim != 0:
+        raise ValueError(
+          "YahmpFutureCriticModel history dimension mismatch: "
+          f"history_dim={history_dim}, history_step_dim={history_step_dim}."
+        )
       critic_cfg.setdefault("motion_obs_dim", motion_dims[0])
       critic_cfg.setdefault("motion_steps", motion_dims[1])
+      critic_cfg.setdefault("proprio_obs_dim", proprio_dim)
+      critic_cfg.setdefault("privileged_obs_dim", privileged_dim)
+      critic_cfg.setdefault("history_input_dim", history_step_dim)
+      critic_cfg.setdefault("history_steps", max(history_dim // history_step_dim, 1))
       critic_cfg.setdefault("motion_latent_dim", 64)
+      critic_cfg.setdefault("history_latent_dim", 128)
       critic_cfg.setdefault("motion_conv_channels", (48, 24))
       critic_cfg.setdefault("motion_conv_kernel_sizes", (6, 4))
       critic_cfg.setdefault("motion_conv_strides", (2, 2))
+      critic_cfg.setdefault("history_conv_channels", (64, 32))
+      critic_cfg.setdefault("history_conv_kernel_sizes", (4, 2))
+      critic_cfg.setdefault("history_conv_strides", (2, 1))
       critic_cfg.setdefault("layer_norm", True)
 
     if (

@@ -73,7 +73,7 @@ def unitree_g1_yahmp_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
       },
     ),
     critic=RslRlModelCfg(
-      class_name="rsl_rl.models:MLPModel",
+      class_name="yahmp.rl.policy:YahmpCriticModel",
       hidden_dims=(512, 512, 256, 128),
       activation="elu",
       obs_normalization=True,
@@ -165,7 +165,7 @@ def unitree_g1_yahmp_student_action_matching_rl_runner_cfg() -> (
       },
     ),
     critic=RslRlModelCfg(
-      class_name="rsl_rl.models:MLPModel",
+      class_name="yahmp.rl.policy:YahmpCriticModel",
       hidden_dims=(512, 512, 256, 128),
       activation="elu",
       obs_normalization=True,
@@ -219,7 +219,7 @@ def unitree_g1_yahmp_student_kl_matching_rl_runner_cfg() -> (
       },
     ),
     critic=RslRlModelCfg(
-      class_name="rsl_rl.models:MLPModel",
+      class_name="yahmp.rl.policy:YahmpCriticModel",
       hidden_dims=(512, 512, 256, 128),
       activation="elu",
       obs_normalization=True,

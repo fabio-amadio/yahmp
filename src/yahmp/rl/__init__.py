@@ -22,6 +22,7 @@ from yahmp.rl.kl_matching_ppo_algorithm import (
 )
 from yahmp.rl.policy import MotionEncoder as MotionEncoder
 from yahmp.rl.policy import YahmpActorModel as YahmpActorModel
+from yahmp.rl.policy import YahmpCriticModel as YahmpCriticModel
 from yahmp.rl.policy import YahmpFutureActorModel as YahmpFutureActorModel
 from yahmp.rl.policy import YahmpFutureCriticModel as YahmpFutureCriticModel
 from yahmp.rl.runner import YahmpOnPolicyRunner as YahmpOnPolicyRunner

@@ -19,7 +19,7 @@ from yahmp.mdp import (
   JointRefAnchorRpMotionCommandCfg,
   TeacherStudentJointRefAnchorRpMotionCommandCfg,
 )
-from yahmp.yahmp_env_cfg import make_env_cfg
+from yahmp.yahmp_env_cfg import make_env_cfg, make_no_res_env_cfg
 from yahmp.yahmp_future_env_cfg import make_future_env_cfg
 from yahmp.yahmp_student_env_cfg import make_student_env_cfg
 from yahmp.yahmp_teacher_env_cfg import make_teacher_env_cfg
@@ -215,6 +215,13 @@ def unitree_g1_yahmp_env_cfg(
 ) -> ManagerBasedRlEnvCfg:
   """Create the Unitree G1 YAHMP direct-training configuration."""
   return _apply_unitree_g1_overrides(make_env_cfg(), play=play)
+
+
+def unitree_g1_yahmp_no_res_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Create the Unitree G1 YAHMP direct-training configuration without residual actions."""
+  return _apply_unitree_g1_overrides(make_no_res_env_cfg(), play=play)
 
 
 def unitree_g1_yahmp_future_env_cfg(

@@ -15,6 +15,7 @@ from mjlab.tasks.tracking import mdp as tracking_mdp
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
+from mjlab.envs.mdp.actions import JointPositionActionCfg
 
 from yahmp import mdp
 from yahmp.mdp import JointRefAnchorRpMotionCommandCfg
@@ -150,6 +151,17 @@ def _actions() -> dict[str, ActionTermCfg]:
       scale=0.5,
       use_default_offset=False,
       command_name="motion",
+    )
+  }
+
+
+def _actions_no_res() -> dict[str, ActionTermCfg]:
+  return {
+    "joint_pos": JointPositionActionCfg(
+      entity_name="robot",
+      actuator_names=(".*",),
+      scale=0.5,
+      use_default_offset=True,
     )
   }
 
@@ -354,6 +366,16 @@ def _terminations() -> dict[str, TerminationTermCfg]:
 
 def make_env_cfg() -> ManagerBasedRlEnvCfg:
   """Create the YAHMP direct-PPO task template with history encoding only."""
+  return _make_env_cfg(actions=_actions())
+
+
+def make_no_res_env_cfg() -> ManagerBasedRlEnvCfg:
+  """Create the YAHMP direct-PPO task template with default joint actions."""
+  return _make_env_cfg(actions=_actions_no_res())
+
+
+def _make_env_cfg(*, actions: dict[str, ActionTermCfg]) -> ManagerBasedRlEnvCfg:
+  """Create the shared YAHMP direct-PPO task template."""
   actor_terms = {
     "command": _current_motion_term(),
     **_proprio_policy_terms(),
@@ -387,7 +409,7 @@ def make_env_cfg() -> ManagerBasedRlEnvCfg:
   return ManagerBasedRlEnvCfg(
     scene=SceneCfg(terrain=TerrainEntityCfg(terrain_type="plane"), num_envs=1),
     observations=observations,
-    actions=_actions(),
+    actions=actions,
     commands=commands,
     events=_events(),
     curriculum={},

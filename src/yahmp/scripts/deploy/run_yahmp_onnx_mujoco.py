@@ -1,4 +1,4 @@
-"""Run an exported base YAHMP ONNX policy on a selected motion in MuJoCo."""
+"""Run an exported YAHMP ONNX policy on a selected motion in MuJoCo."""
 
 from __future__ import annotations
 
@@ -29,7 +29,10 @@ def _yahmp_task_ids() -> tuple[str, ...]:
 
   import yahmp.config.g1  # noqa: F401
 
-  preferred = ("Mjlab-YAHMP-Unitree-G1",)
+  preferred = (
+    "Mjlab-YAHMP-Unitree-G1",
+    "Mjlab-YAHMP-Future-Unitree-G1",
+  )
   available = set(list_tasks())
   return tuple(task_id for task_id in preferred if task_id in available)
 
@@ -48,6 +51,17 @@ def _expand_vector(values: list[float], size: int) -> np.ndarray:
   if vector.shape != (size,):
     raise ValueError(f"Expected shape ({size},), got {vector.shape}.")
   return vector
+
+
+def _parse_int_sequence(value: str | None) -> tuple[int, ...]:
+  if value is None:
+    return ()
+  text = value.strip()
+  if not text:
+    return ()
+  if text.startswith("["):
+    return tuple(int(item) for item in json.loads(text))
+  return tuple(_csv(text, int))
 
 
 @dataclass(frozen=True)
@@ -84,6 +98,7 @@ class PolicySpec:
   motion_command_class: str
   motion_command_representation: str
   motion_command_dim: int
+  motion_command_step_offsets: tuple[int, ...]
   body_names: tuple[str, ...]
   root_body_name: str
 
@@ -130,27 +145,49 @@ class PolicySpec:
         "motion_command_representation_name", "default"
       ),
       motion_command_dim=int(metadata.get("motion_command_dim", "0")),
+      motion_command_step_offsets=_parse_int_sequence(
+        metadata.get("motion_command_step_offsets")
+      ),
       body_names=tuple(_csv(metadata.get("body_names", ""))),
       root_body_name=require("root_body_name"),
     )
 
+  @property
+  def motion_command_num_steps(self) -> int:
+    return max(len(self.motion_command_step_offsets), 1)
+
+  @property
+  def motion_command_step_dim(self) -> int:
+    if self.motion_command_dim % self.motion_command_num_steps != 0:
+      raise ValueError(
+        "Motion command dim does not divide evenly across command steps: "
+        f"dim={self.motion_command_dim}, num_steps={self.motion_command_num_steps}."
+      )
+    return self.motion_command_dim // self.motion_command_num_steps
+
   def validate(self) -> None:
     if self.motion_command_representation != "default":
       raise ValueError(
-        "This script only supports base YAHMP policies that consume the default "
+        "This script only supports YAHMP policies that consume the default "
         "motion representation."
       )
-    if self.motion_command_class != "JointRefAnchorRpMotionCommand":
+    if self.motion_command_class not in {
+      "JointRefAnchorRpMotionCommand",
+      "FutureJointRefAnchorRpMotionCommand",
+    }:
       raise NotImplementedError(
-        "This script supports only the base YAHMP JointRefAnchorRp command, got "
+        "This script supports only YAHMP JointRefAnchorRp-derived commands, got "
         f"`{self.motion_command_class}`."
       )
-    expected_command_dim = 2 * len(self.joint_names) + 6
+    expected_command_dim = self.motion_command_num_steps * (
+      2 * len(self.joint_names) + 6
+    )
     if self.motion_command_dim != expected_command_dim:
       raise ValueError(
-        "This script supports only the current-step JointRefAnchorRp command "
-        f"with dim = 2 * num_joints + 6. Got motion_command_dim="
-        f"{self.motion_command_dim}, num_joints={len(self.joint_names)}."
+        "This script supports only JointRefAnchorRp-style commands with per-step "
+        "dim = 2 * num_joints + 6. Got motion_command_dim="
+        f"{self.motion_command_dim}, num_steps={self.motion_command_num_steps}, "
+        f"num_joints={len(self.joint_names)}."
       )
     if self.action_semantics not in {"residual_joint_position", "joint_position"}:
       raise NotImplementedError(
@@ -522,7 +559,17 @@ def _command_value(
   time_s: float,
   frame: MotionFrame,
 ) -> np.ndarray:
-  del clip, time_s, spec
+  if spec.motion_command_num_steps <= 1:
+    return _single_command_step_value(frame)
+
+  frames = []
+  for step_offset in spec.motion_command_step_offsets:
+    future_time_s = time_s + float(step_offset) * spec.control_dt
+    frames.append(_single_command_step_value(clip.sample(future_time_s)))
+  return np.concatenate(frames).astype(np.float32)
+
+
+def _single_command_step_value(frame: MotionFrame) -> np.ndarray:
   anchor_lin_vel_b = _quat_rotate_inverse(frame.root_quat_w, frame.root_lin_vel_w)
   anchor_ang_vel_b = _quat_rotate_inverse(frame.root_quat_w, frame.root_ang_vel_w)
   parts = [
@@ -575,12 +622,19 @@ def _term_values(
 
 
 def _current_observation_block(
+  spec: PolicySpec,
   terms: dict[str, np.ndarray],
 ) -> np.ndarray:
   """Return YAHMP's deployment-ready current block used by its history term."""
+  command = terms["command"]
+  first_step_command = (
+    command[: spec.motion_command_step_dim]
+    if spec.motion_command_num_steps > 1
+    else command
+  )
   return np.concatenate(
     (
-      terms["command"],
+      first_step_command,
       terms["base_ang_vel"],
       terms["projected_gravity"],
       terms["joint_pos"],
@@ -600,7 +654,7 @@ def _initialize_history(
         terms[term.name][None, :], term.history_length, axis=0
       ).astype(np.float32)
     elif term.name == "history" and term.name not in terms:
-      current = _current_observation_block(terms)
+      current = _current_observation_block(spec, terms)
       if term.flat_dim % current.shape[0] != 0:
         raise ValueError(
           "Cannot initialize YAHMP history term: "
@@ -622,7 +676,7 @@ def _append_history(
     if term.history_length <= 0:
       if term.name == "history" and term.name in history and term.name not in terms:
         history[term.name][:-1] = history[term.name][1:]
-        history[term.name][-1] = _current_observation_block(terms)
+        history[term.name][-1] = _current_observation_block(spec, terms)
       continue
     history[term.name][:-1] = history[term.name][1:]
     history[term.name][-1] = terms[term.name]
@@ -830,10 +884,10 @@ def run(
 
 def _build_argparser() -> argparse.ArgumentParser:
   parser = argparse.ArgumentParser(
-    description="Run a base YAHMP ONNX policy directly in MuJoCo."
+    description="Run a YAHMP ONNX policy directly in MuJoCo."
   )
   parser.add_argument(
-    "--onnx-path", type=Path, required=True, help="Exported base YAHMP ONNX policy."
+    "--onnx-path", type=Path, required=True, help="Exported YAHMP ONNX policy."
   )
   parser.add_argument(
     "--motion-file",
@@ -849,7 +903,7 @@ def _build_argparser() -> argparse.ArgumentParser:
     type=str,
     required=True,
     choices=_yahmp_task_ids(),
-    help="Registered base YAHMP mjlab task whose scene should be used.",
+    help="Registered YAHMP mjlab task whose scene should be used.",
   )
   parser.add_argument(
     "--ort-provider",

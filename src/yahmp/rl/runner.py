@@ -135,6 +135,44 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
       actor_cfg.setdefault("layer_norm", True)
 
     if (
+      actor_class == "yahmp.rl.policy:YahmpEncoderDecoderActorModel"
+      and motion_dims is not None
+    ):
+      observation_manager = env.unwrapped.observation_manager
+      obs_dims = observation_manager.group_obs_dim
+      actor_group = cls._obs_group_name(train_cfg, "actor", "actor")
+      if "policy_current" in obs_dims and "policy_history" in obs_dims:
+        current_dim = int(obs_dims["policy_current"][0])
+        history_dim = int(obs_dims["policy_history"][0])
+        command_dim = motion_dims[0] // max(motion_dims[1], 1)
+      else:
+        actor_terms = observation_manager.active_terms[actor_group]
+        actor_term_dims = observation_manager._group_obs_term_dim[actor_group]
+        flat_term_dims = {
+          name: int(math.prod(dims))
+          for name, dims in zip(actor_terms, actor_term_dims, strict=False)
+        }
+        command_dim = flat_term_dims["command"]
+        history_dim = flat_term_dims["history"]
+        current_dim = int(obs_dims[actor_group][0]) - command_dim - history_dim
+      history_step_dim = command_dim + current_dim
+      if history_dim % history_step_dim != 0:
+        raise ValueError(
+          "YahmpEncoderDecoderActorModel history dimension mismatch: "
+          f"history_dim={history_dim}, history_step_dim={history_step_dim}."
+        )
+      actor_cfg.setdefault("current_motion_obs_dim", command_dim)
+      actor_cfg.setdefault("proprio_obs_dim", current_dim)
+      actor_cfg.setdefault("history_steps", max(history_dim // history_step_dim, 1))
+      actor_cfg.setdefault("history_latent_dim", 128)
+      actor_cfg.setdefault("history_conv_channels", (64, 32))
+      actor_cfg.setdefault("history_conv_kernel_sizes", (4, 2))
+      actor_cfg.setdefault("history_conv_strides", (2, 1))
+      actor_cfg.setdefault("latent_dim", 128)
+      actor_cfg.setdefault("encoder_hidden_dims", (512, 512, 256, 128))
+      actor_cfg.setdefault("layer_norm", True)
+
+    if (
       actor_class == "yahmp.rl.policy:YahmpFutureActorModel" and motion_dims is not None
     ):
       observation_manager = env.unwrapped.observation_manager
@@ -207,6 +245,45 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
       critic_cfg.setdefault("history_conv_channels", (64, 32))
       critic_cfg.setdefault("history_conv_kernel_sizes", (4, 2))
       critic_cfg.setdefault("history_conv_strides", (2, 1))
+      critic_cfg.setdefault("layer_norm", True)
+
+    if (
+      critic_class == "yahmp.rl.policy:YahmpEncoderDecoderCriticModel"
+      and motion_dims is not None
+    ):
+      observation_manager = env.unwrapped.observation_manager
+      obs_dims = observation_manager.group_obs_dim
+      critic_group = cls._obs_group_name(train_cfg, "critic", "critic")
+      critic_terms = observation_manager.active_terms[critic_group]
+      critic_term_dims = observation_manager._group_obs_term_dim[critic_group]
+      flat_term_dims = {
+        name: int(math.prod(dims))
+        for name, dims in zip(critic_terms, critic_term_dims, strict=False)
+      }
+      command_dim = flat_term_dims["command"]
+      history_dim = flat_term_dims["policy_history"]
+      proprio_dim = flat_term_dims["base_ang_vel"] + flat_term_dims["projected_gravity"]
+      proprio_dim += flat_term_dims["joint_pos"] + flat_term_dims["joint_vel"]
+      proprio_dim += flat_term_dims["actions"]
+      privileged_dim = (
+        int(obs_dims[critic_group][0]) - command_dim - proprio_dim - history_dim
+      )
+      history_step_dim = command_dim + proprio_dim
+      if history_dim % history_step_dim != 0:
+        raise ValueError(
+          "YahmpEncoderDecoderCriticModel history dimension mismatch: "
+          f"history_dim={history_dim}, history_step_dim={history_step_dim}."
+        )
+      critic_cfg.setdefault("current_motion_obs_dim", command_dim)
+      critic_cfg.setdefault("proprio_obs_dim", proprio_dim)
+      critic_cfg.setdefault("privileged_obs_dim", privileged_dim)
+      critic_cfg.setdefault("history_steps", max(history_dim // history_step_dim, 1))
+      critic_cfg.setdefault("history_latent_dim", 128)
+      critic_cfg.setdefault("history_conv_channels", (64, 32))
+      critic_cfg.setdefault("history_conv_kernel_sizes", (4, 2))
+      critic_cfg.setdefault("history_conv_strides", (2, 1))
+      critic_cfg.setdefault("latent_dim", 128)
+      critic_cfg.setdefault("encoder_hidden_dims", (512, 512, 256, 128))
       critic_cfg.setdefault("layer_norm", True)
 
     if (

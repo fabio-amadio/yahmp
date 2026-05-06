@@ -175,9 +175,7 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
       actor_cfg.setdefault("history_conv_strides", (2, 1))
       actor_cfg.setdefault("layer_norm", True)
 
-    if (
-      critic_class == "yahmp.rl.policy:YahmpCriticModel" and motion_dims is not None
-    ):
+    if critic_class == "yahmp.rl.policy:YahmpCriticModel" and motion_dims is not None:
       observation_manager = env.unwrapped.observation_manager
       obs_dims = observation_manager.group_obs_dim
       critic_group = cls._obs_group_name(train_cfg, "critic", "critic")
@@ -192,7 +190,9 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
       proprio_dim = flat_term_dims["base_ang_vel"] + flat_term_dims["projected_gravity"]
       proprio_dim += flat_term_dims["joint_pos"] + flat_term_dims["joint_vel"]
       proprio_dim += flat_term_dims["actions"]
-      privileged_dim = int(obs_dims[critic_group][0]) - command_dim - proprio_dim - history_dim
+      privileged_dim = (
+        int(obs_dims[critic_group][0]) - command_dim - proprio_dim - history_dim
+      )
       history_step_dim = command_dim + proprio_dim
       if history_dim % history_step_dim != 0:
         raise ValueError(
@@ -232,7 +232,9 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
       proprio_dim = flat_term_dims["base_ang_vel"] + flat_term_dims["projected_gravity"]
       proprio_dim += flat_term_dims["joint_pos"] + flat_term_dims["joint_vel"]
       proprio_dim += flat_term_dims["actions"]
-      privileged_dim = int(obs_dims[critic_group][0]) - int(motion_dims[0]) - proprio_dim - history_dim
+      privileged_dim = (
+        int(obs_dims[critic_group][0]) - int(motion_dims[0]) - proprio_dim - history_dim
+      )
       history_step_dim = flat_term_dims["policy_history"] // max(history_length, 1)
       if history_dim % history_step_dim != 0:
         raise ValueError(

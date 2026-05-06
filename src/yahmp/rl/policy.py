@@ -503,9 +503,7 @@ class YahmpCriticModel(MLPModel):
     obs_flat = super().get_latent(obs, masks, hidden_state)
     motion_obs, proprio_obs, history_obs, privileged_obs = self._split_obs(obs_flat)
     history_latent = self.history_encoder(history_obs)
-    return torch.cat(
-      (motion_obs, proprio_obs, history_latent, privileged_obs), dim=-1
-    )
+    return torch.cat((motion_obs, proprio_obs, history_latent, privileged_obs), dim=-1)
 
 
 class YahmpFutureCriticModel(MLPModel):

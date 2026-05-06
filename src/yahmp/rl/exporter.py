@@ -139,7 +139,7 @@ def _get_observation_metadata(
   env: ManagerBasedRlEnv,
 ) -> dict[str, list | str | float | int | bool]:
   observation_manager = env.observation_manager
-  group_name = "policy" if "policy" in observation_manager.active_terms else "actor"
+  group_name = "actor"
   observation_terms = observation_manager.active_terms[group_name]
   term_dims = observation_manager._group_obs_term_dim[group_name]
   term_cfgs = observation_manager._group_obs_term_cfgs[group_name]
@@ -171,8 +171,8 @@ def _get_observation_metadata(
 
 
 def _get_export_observation_group_name(env: ManagerBasedRlEnv) -> str:
-  observation_manager = env.observation_manager
-  return "policy" if "policy" in observation_manager.active_terms else "actor"
+  del env
+  return "actor"
 
 
 def _get_command_observation_term_cfg(env: ManagerBasedRlEnv):

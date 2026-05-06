@@ -1,9 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 from mjlab.rl import (
-  RslRlBaseRunnerCfg,
-  RslRlModelCfg,
   RslRlOnPolicyRunnerCfg,
   RslRlPpoAlgorithmCfg,
 )
@@ -25,19 +23,16 @@ class YahmpDistillationAlgorithmCfg:
 
 
 @dataclass
-class YahmpDistillationRunnerCfg(RslRlBaseRunnerCfg):
-  class_name: str = "DistillationRunner"
+class YahmpOnPolicyRunnerCfg(RslRlOnPolicyRunnerCfg):
   upload_model_mode: UploadModelMode = "rolling_latest"
-  student: RslRlModelCfg = field(default_factory=RslRlModelCfg)
-  teacher: RslRlModelCfg = field(default_factory=RslRlModelCfg)
-  algorithm: YahmpDistillationAlgorithmCfg = field(
-    default_factory=YahmpDistillationAlgorithmCfg
-  )
 
 
 @dataclass
-class YahmpOnPolicyRunnerCfg(RslRlOnPolicyRunnerCfg):
-  upload_model_mode: UploadModelMode = "rolling_latest"
+class YahmpStudentOnPolicyRunnerCfg(YahmpOnPolicyRunnerCfg):
+  teacher_wandb_run_path: str | None = None
+  teacher_wandb_checkpoint_name: str | None = None
+  teacher_checkpoint_file: str | None = None
+  teacher_strict_load: bool = True
 
 
 @dataclass

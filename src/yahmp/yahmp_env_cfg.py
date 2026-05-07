@@ -4,6 +4,7 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import dr
 from mjlab.managers.action_manager import ActionTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
+from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
@@ -29,6 +30,13 @@ PUSH_VELOCITY_RANGE = {
   "pitch": (-0.52, 0.52),
   "yaw": (-0.78, 0.78),
 }
+
+HAND_FORCE_CURRICULUM_STAGES = [
+  {"step": 7_500, "feasible_force_fraction_range": (0.05, 0.15)},
+  {"step": 15_000, "feasible_force_fraction_range": (0.10, 0.30)},
+  {"step": 22_500, "feasible_force_fraction_range": (0.15, 0.45)},
+  {"step": 29_000, "feasible_force_fraction_range": (0.20, 0.60)},
+]
 
 
 def _motion_command_kwargs() -> dict[str, object]:
@@ -175,8 +183,8 @@ def _events() -> dict[str, EventTermCfg]:
           ".*_elbow_joint",
           ".*_wrist_.*_joint",
         ),
-        "feasible_force_fraction_range": (0.05, 0.25),
-        "max_force_magnitude": 20.0,
+        "feasible_force_fraction_range": (0.02, 0.10),
+        "max_force_magnitude": 50.0,
         "force_ramp_time_fraction": 0.15,
         "dirichlet_alpha": 1.0,
         "subtract_commanded_torque_margin": True,
@@ -242,6 +250,18 @@ def _events() -> dict[str, EventTermCfg]:
     #     "lag_range": (0, 1),
     #   },
     # ),
+  }
+
+
+def _curriculum() -> dict[str, CurriculumTermCfg]:
+  return {
+    "hand_force_range": CurriculumTermCfg(
+      func=mdp.event_feasible_force_fraction_range,
+      params={
+        "event_name": "push_end_effector",
+        "feasible_force_fraction_stages": HAND_FORCE_CURRICULUM_STAGES,
+      },
+    )
   }
 
 
@@ -390,7 +410,7 @@ def make_env_cfg() -> ManagerBasedRlEnvCfg:
     actions=_actions(),
     commands=commands,
     events=_events(),
-    curriculum={},
+    curriculum=_curriculum(),
     rewards=_rewards(),
     terminations=_terminations(),
     viewer=ViewerConfig(

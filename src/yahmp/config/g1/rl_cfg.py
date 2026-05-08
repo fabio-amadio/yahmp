@@ -3,7 +3,10 @@
 from mjlab.rl import RslRlModelCfg, RslRlPpoAlgorithmCfg
 
 from yahmp.rl import (
+  ImitationLossWeights,
+  ImitationTrainerCfg,
   YahmpActionMatchingPpoAlgorithmCfg,
+  YahmpImitationRunnerCfg,
   YahmpKlMatchingPpoAlgorithmCfg,
   YahmpOnPolicyRunnerCfg,
   YahmpStudentOnPolicyRunnerCfg,
@@ -289,6 +292,38 @@ def unitree_g1_yahmp_student_action_matching_rl_runner_cfg() -> (
       "critic": ("critic",),
       "teacher": ("teacher_actor",),
     },
+  )
+
+
+def unitree_g1_yahmp_imitation_runner_cfg() -> YahmpImitationRunnerCfg:
+  return YahmpImitationRunnerCfg(
+    seed=1,
+    expert=RslRlModelCfg(
+      class_name="yahmp.rl.policy:YahmpEncoderDecoderActorModel",
+      hidden_dims=(512, 512, 256, 128),
+      activation="elu",
+      obs_normalization=True,
+      distribution_cfg={
+        "class_name": "GaussianDistribution",
+        "init_std": 1.0,
+        "std_type": "log",
+      },
+    ),
+    student=RslRlModelCfg(
+      class_name="yahmp.rl.imitation_RVQ_policy:YahmpImitationModel",
+      hidden_dims=(512, 512, 256, 128),
+      activation="elu",
+      obs_normalization=True,
+    ),
+    loss_weights=ImitationLossWeights(action=1.0, mm=0.1, reg=0.05, vq=1.0),
+    trainer=ImitationTrainerCfg(lr=2e-4, grad_clip_norm=1.0),
+    experiment_name="g1_yahmp_imitation",
+    wandb_project="yahmp",
+    wandb_tags=_wandb_tags("yahmp", "imitation", "rvq"),
+    save_interval=500,
+    num_steps_per_env=24,
+    max_iterations=20_000,
+    obs_groups={"actor": ("actor",), "critic": ("critic",)},
   )
 
 

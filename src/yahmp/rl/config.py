@@ -1,10 +1,14 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from mjlab.rl import (
+  RslRlBaseRunnerCfg,
+  RslRlModelCfg,
   RslRlOnPolicyRunnerCfg,
   RslRlPpoAlgorithmCfg,
 )
+
+from yahmp.rl.imitation_trainer import ImitationLossWeights, ImitationTrainerCfg
 
 UploadModelMode = Literal["all", "rolling_latest"]
 
@@ -50,3 +54,45 @@ class YahmpKlMatchingPpoAlgorithmCfg(RslRlPpoAlgorithmCfg):
   kl_coef: float = 0.1
   kl_coef_min: float = 0.0
   kl_coef_anneal_iters: int = 10_000
+
+
+@dataclass
+class YahmpImitationRunnerCfg(RslRlBaseRunnerCfg):
+  """Config for the Phase 1 imitation/VQ runner.
+
+  Inherits the standard mjlab base runner fields (seed, max_iterations,
+  experiment_name, clip_actions, …) so it plugs into ``mjlab.scripts.train``
+  the same way the PPO runner does. The runner-specific fields below describe
+  the frozen expert, the student model, and the supervised loss / optimizer.
+
+  ``expert_checkpoint`` must be provided (CLI: ``--agent.expert-checkpoint``);
+  it points to the trained encoder-decoder policy that supplies target
+  actions during rollouts.
+  """
+
+  class_name: str = "yahmp.rl.imitation_runner:YahmpImitationRunner"
+  expert: RslRlModelCfg = field(
+    default_factory=lambda: RslRlModelCfg(
+      class_name="yahmp.rl.policy:YahmpEncoderDecoderActorModel",
+      hidden_dims=(512, 512, 256, 128),
+      activation="elu",
+      obs_normalization=True,
+      distribution_cfg={
+        "class_name": "GaussianDistribution",
+        "init_std": 1.0,
+        "std_type": "log",
+      },
+    )
+  )
+  student: RslRlModelCfg = field(
+    default_factory=lambda: RslRlModelCfg(
+      class_name="yahmp.rl.imitation_RVQ_policy:YahmpImitationModel",
+      hidden_dims=(512, 512, 256, 128),
+      activation="elu",
+      obs_normalization=True,
+    )
+  )
+  expert_checkpoint: str | None = None
+  loss_weights: ImitationLossWeights = field(default_factory=ImitationLossWeights)
+  trainer: ImitationTrainerCfg = field(default_factory=ImitationTrainerCfg)
+  upload_model_mode: UploadModelMode = "rolling_latest"

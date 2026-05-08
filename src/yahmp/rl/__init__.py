@@ -12,11 +12,23 @@ from yahmp.rl.config import (
 )
 from yahmp.rl.config import YahmpOnPolicyRunnerCfg as YahmpOnPolicyRunnerCfg
 from yahmp.rl.config import (
+  YahmpImitationRunnerCfg as YahmpImitationRunnerCfg,
+)
+from yahmp.rl.config import (
   YahmpStudentOnPolicyRunnerCfg as YahmpStudentOnPolicyRunnerCfg,
 )
 from yahmp.rl.distillation_runner import (
   YahmpDistillationRunner as YahmpDistillationRunner,
 )
+from yahmp.rl.imitation_RVQ_policy import (
+  YahmpImitationModel as YahmpImitationModel,
+)
+from yahmp.rl.imitation_runner import (
+  YahmpImitationRunner as YahmpImitationRunner,
+)
+from yahmp.rl.imitation_trainer import ImitationLossWeights as ImitationLossWeights
+from yahmp.rl.imitation_trainer import ImitationTrainer as ImitationTrainer
+from yahmp.rl.imitation_trainer import ImitationTrainerCfg as ImitationTrainerCfg
 from yahmp.rl.kl_matching_ppo_algorithm import (
   YahmpKlMatchingPPO as YahmpKlMatchingPPO,
 )

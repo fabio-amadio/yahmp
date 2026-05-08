@@ -16,6 +16,7 @@ authors = [
 dependencies = [
   "mjlab==1.2.0",
   "onnxruntime-gpu>=1.24.3",
+  "vector-quantize-pytorch>=1.28.2",
 ]
 
 [project.scripts]

@@ -32,10 +32,22 @@ PUSH_VELOCITY_RANGE = {
 }
 
 HAND_FORCE_CURRICULUM_STAGES = [
-  {"step": 7_500, "feasible_force_fraction_range": (0.05, 0.15)},
-  {"step": 15_000, "feasible_force_fraction_range": (0.10, 0.30)},
-  {"step": 22_500, "feasible_force_fraction_range": (0.15, 0.45)},
-  {"step": 29_000, "feasible_force_fraction_range": (0.20, 0.60)},
+  {
+    "step": 7_500 * 24,
+    "feasible_force_fraction_range": (0.05, 0.15),
+  },
+  {
+    "step": 15_000 * 24,
+    "feasible_force_fraction_range": (0.10, 0.30),
+  },
+  {
+    "step": 22_500 * 24,
+    "feasible_force_fraction_range": (0.15, 0.45),
+  },
+  {
+    "step": 29_000 * 24,
+    "feasible_force_fraction_range": (0.20, 0.60),
+  },
 ]
 
 

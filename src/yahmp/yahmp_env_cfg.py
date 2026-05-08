@@ -273,7 +273,11 @@ def _curriculum() -> dict[str, CurriculumTermCfg]:
         "event_name": "push_end_effector",
         "feasible_force_fraction_stages": HAND_FORCE_CURRICULUM_STAGES,
       },
-    )
+    ),
+    "hand_force_stats": CurriculumTermCfg(
+      func=mdp.event_force_magnitude_stats,
+      params={"event_name": "push_end_effector"},
+    ),
   }
 
 

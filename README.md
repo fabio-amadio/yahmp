@@ -63,6 +63,22 @@ uv run python -m yahmp.scripts.deploy.run_yahmp_onnx_mujoco \
 
 Utility scripts for data conversion, ONNX export, deployment, evaluation, and workflow helpers live under [`src/yahmp/scripts`](src/yahmp/scripts). See the dedicated guide at [`src/yahmp/scripts/README.md`](src/yahmp/scripts/README.md).
 
+### Encoder-Decoder + Imitation pipeline
+
+`Mjlab-YAHMP-EncDec-Unitree-G1` trains the encoder-decoder expert. Its checkpoint is then used as the frozen teacher for Phase 1 of the imitation pipeline.
+
+`Mjlab-YAHMP-Imitation-Unitree-G1` trains the `YahmpImitationModel` (prior + posterior + Residual VQ + action decoder) by distilling the frozen expert.
+
+```bash
+# 1. Train the encoder-decoder expert
+WANDB_USERNAME= <your-org> uv run train Mjlab-YAHMP-EncDec-Unitree-G1 --env.scene.num-envs 8192
+
+# 2. Train the imitation block from the expert checkpoint
+WANDB_USERNAME= <your-org> uv run train Mjlab-YAHMP-Imitation-Unitree-G1 \
+  --env.scene.num-envs 8192 \
+  --agent.expert-checkpoint logs/rsl_rl/g1_yahmp_encdec/<run>/model_<iter>.pt
+```
+
 ## Extras
 
 ### YAHMP-Future

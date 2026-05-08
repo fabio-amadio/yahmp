@@ -115,6 +115,11 @@ class YahmpImitationRunner:
         self.save_interval = int(train_cfg.get("save_interval", 500))
         self.current_iteration = 0
 
+        self._wandb_initialized = False
+        self._use_wandb = (
+            train_cfg.get("logger", "wandb") == "wandb" and log_dir is not None
+        )
+
     def _load_expert(self, ckpt_path: str | os.PathLike) -> None:
         print(f"[YahmpImitationRunner] Loading expert checkpoint: {ckpt_path}")
         ckpt = torch.load(str(ckpt_path), map_location=self.device, weights_only=False)
@@ -137,18 +142,42 @@ class YahmpImitationRunner:
     def add_git_repo_to_log(self, *args, **kwargs) -> None:
         pass
 
+    def _maybe_init_wandb(self) -> None:
+        if not self._use_wandb or self._wandb_initialized:
+            return
+        try:
+            import wandb
+        except ImportError:
+            print("[YahmpImitationRunner] wandb not installed — skipping logging.")
+            self._use_wandb = False
+            return
+        entity = os.environ.get("WANDB_USERNAME") or os.environ.get("WANDB_ENTITY")
+        wandb.init(
+            project=self.cfg.get("wandb_project", "yahmp"),
+            entity=entity,
+            name=Path(self.log_dir).name if self.log_dir else None,
+            tags=list(self.cfg.get("wandb_tags", ())),
+            config=self.cfg,
+        )
+        self._wandb_initialized = True
+
     def learn(self, num_learning_iterations: int, **kwargs: Any) -> None:
         del kwargs  # absorb `init_at_random_ep_len` etc.
+        self._maybe_init_wandb()
         obs = self.env.get_observations()
         if isinstance(obs, tuple):
             obs = obs[0]
         obs = obs.to(self.device)
+
+        num_envs = int(self.env.num_envs)
+        cur_ep_len = torch.zeros(num_envs, device=self.device, dtype=torch.long)
 
         target_iteration = self.current_iteration + int(num_learning_iterations)
         while self.current_iteration < target_iteration:
             rollout_obs: list = []
             rollout_actions: list[torch.Tensor] = []
             rollout_dones: list[torch.Tensor] = []
+            ended_lengths: list[torch.Tensor] = []
 
             with torch.inference_mode():
                 for _ in range(self.num_steps_per_env):
@@ -156,7 +185,13 @@ class YahmpImitationRunner:
                     rollout_obs.append(obs.clone())
                     rollout_actions.append(action.clone())
                     obs, _, dones, _ = self.env.step(action.to(self.env.device))
-                    rollout_dones.append(dones.clone().to(self.device))
+                    dones = dones.to(self.device)
+                    rollout_dones.append(dones.clone())
+                    cur_ep_len += 1
+                    done_mask = dones.bool()
+                    if done_mask.any():
+                        ended_lengths.append(cur_ep_len[done_mask].clone())
+                        cur_ep_len[done_mask] = 0
                     obs = obs.to(self.device)
 
             stats: dict[str, float] = {}
@@ -170,6 +205,16 @@ class YahmpImitationRunner:
                     batch["valid_prev"] = rollout_dones[i - 1]
                 stats = self.trainer.train_step(batch)
 
+            if ended_lengths:
+                lens = torch.cat(ended_lengths).float()
+                stats["expert/episode_length_mean"] = float(lens.mean().item())
+                stats["expert/episode_length_max"] = float(lens.max().item())
+                stats["expert/num_episodes"] = float(lens.numel())
+            else:
+                stats["expert/episode_length_mean"] = float(cur_ep_len.float().mean().item())
+                stats["expert/episode_length_max"] = float(cur_ep_len.max().item())
+                stats["expert/num_episodes"] = 0.0
+
             self.current_iteration += 1
             it = self.current_iteration
             print(
@@ -179,6 +224,11 @@ class YahmpImitationRunner:
                 f"loss_mm={stats.get('loss_mm', float('nan')):.4f} "
                 f"loss_commit={stats.get('loss_commit', float('nan')):.4f}"
             )
+
+            if self._use_wandb and self._wandb_initialized:
+                import wandb
+
+                wandb.log(stats, step=it)
 
             if self.log_dir and it % self.save_interval == 0:
                 self.save(os.path.join(self.log_dir, f"imitation_{it}.pt"))

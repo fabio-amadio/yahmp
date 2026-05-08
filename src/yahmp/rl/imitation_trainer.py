@@ -189,6 +189,19 @@ class ImitationTrainer:
             if "loss_vq" in vq_info:
                 stats["rvq/loss_vq"] = float(vq_info["loss_vq"].detach().item())
 
+            for key, prefix in (
+                ("perplexities_per_layer", "rvq/perplexity"),
+                ("usages_per_layer", "rvq/usage"),
+                ("usage_ratios_per_layer", "rvq/usage_ratio"),
+            ):
+                t = vq_info.get(key)
+                if t is None or t.numel() == 0:
+                    continue
+                t = t.detach()
+                for i in range(t.shape[0]):
+                    stats[f"{prefix}/layer_{i}"] = float(t[i].item())
+                stats[f"{prefix}_mean"] = float(t.mean().item())
+
         return stats
 
     def state_dict(self) -> dict[str, Any]:

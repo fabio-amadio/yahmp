@@ -165,10 +165,35 @@ class ResidualVQ(nn.Module):
             losses_per_layer = torch.zeros((0,), device=y.device, dtype=y.dtype)
             loss_vq = torch.zeros((), device=y.device, dtype=y.dtype)
 
+        # Codebook utilization stats (per active layer).
+        codebook_size = int(self.cfg.codebook_size)
+        if len(all_indices) > 0:
+            perplexities = []
+            usages = []
+            for layer_indices in all_indices:
+                counts = torch.bincount(
+                    layer_indices.flatten(), minlength=codebook_size
+                ).float()
+                probs = counts / counts.sum().clamp_min(1.0)
+                nz = probs > 0
+                entropy = -(probs[nz] * probs[nz].log()).sum()
+                perplexities.append(entropy.exp())
+                usages.append(nz.sum().to(y.dtype))
+            perplexities_per_layer = torch.stack(perplexities, dim=0)
+            usages_per_layer = torch.stack(usages, dim=0)
+            usage_ratios_per_layer = usages_per_layer / float(max(codebook_size, 1))
+        else:
+            perplexities_per_layer = torch.zeros((0,), device=y.device, dtype=y.dtype)
+            usages_per_layer = torch.zeros((0,), device=y.device, dtype=y.dtype)
+            usage_ratios_per_layer = torch.zeros((0,), device=y.device, dtype=y.dtype)
+
         info = {
             "indices": indices,  # (B, num_active)
             "loss_vq": loss_vq,  # scalar
             "losses_per_layer": losses_per_layer,
             "num_active": torch.tensor(num_active, device=y.device),
+            "perplexities_per_layer": perplexities_per_layer,  # (num_active,)
+            "usages_per_layer": usages_per_layer,  # (num_active,)
+            "usage_ratios_per_layer": usage_ratios_per_layer,  # (num_active,)
         }
         return y_hat, info

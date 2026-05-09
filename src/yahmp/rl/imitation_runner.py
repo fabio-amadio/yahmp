@@ -231,11 +231,11 @@ class YahmpImitationRunner:
                 wandb.log(stats, step=it)
 
             if self.log_dir and it % self.save_interval == 0:
-                self.save(os.path.join(self.log_dir, f"imitation_{it}.pt"))
+                self.save(os.path.join(self.log_dir, f"model_{it}.pt"))
 
         if self.log_dir:
             self.save(
-                os.path.join(self.log_dir, f"imitation_{self.current_iteration}.pt")
+                os.path.join(self.log_dir, f"model_{self.current_iteration}.pt")
             )
 
     def save(self, path: str) -> None:
@@ -247,11 +247,28 @@ class YahmpImitationRunner:
             },
             path,
         )
+        if self._use_wandb and self._wandb_initialized:
+            import wandb
+            wandb.save(path, base_path=str(Path(path).parent), policy="now")
 
-    def load(self, path: str, strict: bool = True) -> None:
+    def load(self, path: str, strict: bool = True, **kwargs: Any) -> None:
+        del kwargs  # absorb mjlab.scripts.play extras like `load_cfg`, `map_location`
         sd = torch.load(path, map_location=self.device, weights_only=False)
         self.trainer.load_state_dict(sd["trainer"], strict=strict)
         self.current_iteration = int(sd.get("iteration", 0))
+
+    def get_inference_policy(self, device: str | torch.device | None = None):
+        """Return a callable mapping obs -> action for use in `play`."""
+        if device is not None:
+            self.student.to(device)
+        self.student.eval()
+
+        @torch.inference_mode()
+        def policy(obs):
+            out = self.student(obs)
+            return out["a_hat"] if isinstance(out, dict) else out
+
+        return policy
 
     @staticmethod
     def _configure_model_cfg(env: Any, train_cfg: dict) -> None:

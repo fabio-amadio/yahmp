@@ -77,7 +77,9 @@ class YahmpImitationRunner:
             **expert_cfg,
         ).to(device)
 
-        self._load_expert(train_cfg["expert_checkpoint"])
+        expert_ckpt = train_cfg.get("expert_checkpoint")
+        if expert_ckpt is not None:
+            self._load_expert(expert_ckpt)
         self.expert.eval()
         for p in self.expert.parameters():
             p.requires_grad = False

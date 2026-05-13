@@ -347,6 +347,16 @@ def _rewards() -> dict[str, RewardTermCfg]:
         ),
       },
     ),
+    "joint_torques_l2": RewardTermCfg(
+      func=mdp.joint_torques_l2,
+      weight=-1.0e-5,
+      params={"asset_cfg": SceneEntityCfg("robot", actuator_names=(".*",))},
+    ),
+    "joint_acc_l2": RewardTermCfg(
+      func=mdp.joint_acc_l2,
+      weight=-1.0e-7,
+      params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
+    ),
     "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-1e-1),
     "joint_limit": RewardTermCfg(
       func=mdp.joint_pos_limits,

@@ -44,10 +44,10 @@ HAND_FORCE_CURRICULUM_STAGES = [
     "step": 22_500 * 24,
     "feasible_force_fraction_range": (0.15, 0.45),
   },
-  {
-    "step": 29_000 * 24,
-    "feasible_force_fraction_range": (0.20, 0.60),
-  },
+  # {
+  #   "step": 29_000 * 24,
+  #   "feasible_force_fraction_range": (0.20, 0.60),
+  # },
 ]
 
 

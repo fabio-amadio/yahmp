@@ -12,6 +12,7 @@ from mjlab.entity import EntityArticulationInfoCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
+from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from yahmp.mdp import (
   FutureJointRefAnchorRpMotionCommandCfg,
@@ -61,6 +62,44 @@ G1_COMPARISON_KEY_BODY_NAMES = (
   "right_wrist_yaw_link",
 )
 
+G1_JOINT_ORDER = (
+  "left_hip_pitch_joint",
+  "left_hip_roll_joint",
+  "left_hip_yaw_joint",
+  "left_knee_joint",
+  "left_ankle_pitch_joint",
+  "left_ankle_roll_joint",
+  "right_hip_pitch_joint",
+  "right_hip_roll_joint",
+  "right_hip_yaw_joint",
+  "right_knee_joint",
+  "right_ankle_pitch_joint",
+  "right_ankle_roll_joint",
+  "waist_yaw_joint",
+  "waist_roll_joint",
+  "waist_pitch_joint",
+  "left_shoulder_pitch_joint",
+  "left_shoulder_roll_joint",
+  "left_shoulder_yaw_joint",
+  "left_elbow_joint",
+  "left_wrist_roll_joint",
+  "left_wrist_pitch_joint",
+  "left_wrist_yaw_joint",
+  "right_shoulder_pitch_joint",
+  "right_shoulder_roll_joint",
+  "right_shoulder_yaw_joint",
+  "right_elbow_joint",
+  "right_wrist_roll_joint",
+  "right_wrist_pitch_joint",
+  "right_wrist_yaw_joint",
+)
+G1_ANKLE_JOINTS = (
+  "left_ankle_pitch_joint",
+  "left_ankle_roll_joint",
+  "right_ankle_pitch_joint",
+  "right_ankle_roll_joint",
+)
+
 
 def _make_g1_delayed_actuators(
   base_actuators: tuple[DelayedActuatorCfg, ...],
@@ -77,6 +116,22 @@ def _make_g1_delayed_actuators(
   )
 
 
+def _g1_joint_vel_noise_cfg(
+  default_range: float = 1.5,
+  ankle_range: float = 3.0,
+) -> Unoise:
+  ankle_joint_set = set(G1_ANKLE_JOINTS)
+  n_min = tuple(
+    -ankle_range if joint_name in ankle_joint_set else -default_range
+    for joint_name in G1_JOINT_ORDER
+  )
+  n_max = tuple(
+    ankle_range if joint_name in ankle_joint_set else default_range
+    for joint_name in G1_JOINT_ORDER
+  )
+  return Unoise(n_min=n_min, n_max=n_max)
+
+
 def _apply_unitree_g1_overrides(
   cfg: ManagerBasedRlEnvCfg,
   play: bool,
@@ -91,6 +146,13 @@ def _apply_unitree_g1_overrides(
     soft_joint_pos_limit_factor=robot_cfg.articulation.soft_joint_pos_limit_factor,
   )
   cfg.scene.entities = {"robot": robot_cfg}
+
+  if (
+    "actor" in cfg.observations
+    and cfg.observations["actor"] is not None
+    and "joint_vel" in cfg.observations["actor"].terms
+  ):
+    cfg.observations["actor"].terms["joint_vel"].noise = _g1_joint_vel_noise_cfg()
 
   feet_ground_cfg = ContactSensorCfg(
     name="feet_ground_contact",

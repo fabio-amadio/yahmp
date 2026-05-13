@@ -193,6 +193,7 @@ def _apply_unitree_g1_overrides(
       cfg.terminations["motion_ref_expired"] = motion_expiration_termination
     cfg.events.pop("push_robot", None)
     cfg.events.pop("action_delay", None)
+    cfg.events.pop("motor_strength", None)
     # Uncomment to disable "push_end_effector" event.
     # cfg.events.pop("push_end_effector", None)
 

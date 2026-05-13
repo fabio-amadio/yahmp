@@ -141,6 +141,14 @@ def _privileged_terms() -> dict[str, ObservationTermCfg]:
       func=mdp.motion_friction_coeff,
       params={"asset_cfg": SceneEntityCfg("robot", geom_names=())},
     ),
+    "motor_strength_kp_rel": ObservationTermCfg(
+      func=mdp.motor_strength_kp_rel,
+      params={"asset_cfg": SceneEntityCfg("robot")},
+    ),
+    "motor_strength_kd_rel": ObservationTermCfg(
+      func=mdp.motor_strength_kd_rel,
+      params={"asset_cfg": SceneEntityCfg("robot")},
+    ),
   }
 
 
@@ -232,17 +240,17 @@ def _events() -> dict[str, EventTermCfg]:
         },
       },
     ),
-    # "motor_strength": EventTermCfg(
-    #   mode="startup",
-    #   func=dr.pd_gains,
-    #   params={
-    #     "asset_cfg": SceneEntityCfg("robot"),
-    #     "kp_range": (0.95, 1.05),
-    #     "kd_range": (0.95, 1.05),
-    #     "distribution": "uniform",
-    #     "operation": "scale",
-    #   },
-    # ),
+    "motor_strength": EventTermCfg(
+      mode="startup",
+      func=dr.pd_gains,
+      params={
+        "asset_cfg": SceneEntityCfg("robot"),
+        "kp_range": (0.95, 1.05),
+        "kd_range": (0.95, 1.05),
+        "distribution": "uniform",
+        "operation": "scale",
+      },
+    ),
     "foot_friction": EventTermCfg(
       mode="startup",
       func=dr.geom_friction,
@@ -253,15 +261,15 @@ def _events() -> dict[str, EventTermCfg]:
         "shared_random": True,
       },
     ),
-    # "action_delay": EventTermCfg(
-    #   mode="interval",
-    #   func=dr.sync_actuator_delays,
-    #   interval_range_s=(0.02, 0.02),
-    #   params={
-    #     "asset_cfg": SceneEntityCfg("robot"),
-    #     "lag_range": (0, 1),
-    #   },
-    # ),
+    "action_delay": EventTermCfg(
+      mode="interval",
+      func=dr.sync_actuator_delays,
+      interval_range_s=(0.02, 0.02),
+      params={
+        "asset_cfg": SceneEntityCfg("robot"),
+        "lag_range": (0, 2),
+      },
+    ),
   }
 
 

@@ -273,7 +273,8 @@ def _get_base_metadata(
 def attach_onnx_metadata(env: ManagerBasedRlEnv, run_path: str, onnx_path: str) -> None:
   model = onnx.load(onnx_path)
   metadata = _get_base_metadata(env, run_path)
-  metadata.update(_get_motion_metadata(env))
+  if "motion" in env.command_manager.active_terms:
+    metadata.update(_get_motion_metadata(env))
 
   existing = {entry.key: entry.value for entry in model.metadata_props}
   del model.metadata_props[:]

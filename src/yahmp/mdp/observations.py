@@ -326,6 +326,123 @@ def _current_observation_with_privileged(
     )
 
 
+def velocity_command(
+    env: ManagerBasedRlEnv, command_name: str
+) -> torch.Tensor:
+    """Return the body-frame velocity command ``(vx, vy, ω_z)``."""
+    command = env.command_manager.get_command(command_name)
+    assert command is not None, f"Command '{command_name}' not found."
+    return command
+
+
+def _locomotion_current_observation(
+    env: ManagerBasedRlEnv,
+    command_name: str,
+) -> torch.Tensor:
+    """Locomotion deployment-ready current block.
+
+    Layout: velocity command followed by proprio
+    [base_ang_vel, projected_gravity, joint_pos_rel, joint_vel_rel, last_action].
+    """
+    return torch.cat(
+        (
+            velocity_command(env, command_name=command_name),
+            builtin_mdp.builtin_sensor(env, sensor_name="robot/imu_ang_vel"),
+            builtin_mdp.projected_gravity(env),
+            builtin_mdp.joint_pos_rel(env),
+            builtin_mdp.joint_vel_rel(env),
+            builtin_mdp.last_action(env),
+        ),
+        dim=-1,
+    )
+
+
+def _locomotion_current_observation_with_privileged(
+    env: ManagerBasedRlEnv,
+    command_name: str,
+) -> torch.Tensor:
+    """Locomotion current block augmented with privileged observations.
+
+    Adds true linear velocity, feet contact mask and friction coefficient.
+    """
+    return torch.cat(
+        (
+            _locomotion_current_observation(env, command_name),
+            builtin_mdp.builtin_sensor(env, sensor_name="robot/imu_lin_vel"),
+            feet_contact_mask(env, sensor_name="feet_ground_contact"),
+            motion_friction_coeff(
+                env, asset_cfg=SceneEntityCfg("robot", geom_names=())
+            ),
+        ),
+        dim=-1,
+    )
+
+
+class YahmpLocomotionObservationHistory:
+    """Time-major history buffer for the YAHMP locomotion task.
+
+    Stores ``[velocity_command, proprio]`` per step and returns the previous
+    ``history_length`` entries flattened as ``[t-H, ..., t-1]``.
+    """
+
+    def __init__(self, cfg, env: ManagerBasedRlEnv):
+        self.command_name = cfg.params["command_name"]
+        self.history_length = int(cfg.params["history_length"])
+        self.include_privileged = bool(cfg.params.get("include_privileged", False))
+        if self.history_length <= 0:
+            raise ValueError(
+                "YahmpLocomotionObservationHistory requires history_length > 0."
+            )
+        self._history: torch.Tensor | None = None
+        self._needs_reset = torch.ones(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        if self._history is None:
+            return
+        if env_ids is None or isinstance(env_ids, slice):
+            self._needs_reset[:] = True
+        else:
+            self._needs_reset[env_ids] = True
+
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        command_name: str | None = None,
+        history_length: int | None = None,
+        include_privileged: bool | None = None,
+    ) -> torch.Tensor:
+        del history_length
+        del include_privileged
+        active_command_name = command_name or self.command_name
+        if self.include_privileged:
+            current = _locomotion_current_observation_with_privileged(
+                env, active_command_name
+            )
+        else:
+            current = _locomotion_current_observation(env, active_command_name)
+
+        if self._history is None:
+            self._history = current[:, None, :].repeat(1, self.history_length, 1)
+            self._needs_reset = torch.zeros(
+                env.num_envs, dtype=torch.bool, device=env.device
+            )
+            return self._history.reshape(env.num_envs, -1)
+
+        if torch.any(self._needs_reset):
+            reset_ids = torch.nonzero(self._needs_reset, as_tuple=False).squeeze(-1)
+            self._history[reset_ids] = current[reset_ids, None, :].repeat(
+                1, self.history_length, 1
+            )
+            self._needs_reset[reset_ids] = False
+
+        history_out = self._history.reshape(env.num_envs, -1).clone()
+        self._history[:, :-1] = self._history[:, 1:].clone()
+        self._history[:, -1] = current
+        return history_out
+
+
 class YahmpObservationHistory:
     """Time-major history buffer for YAHMP actor observations.
 

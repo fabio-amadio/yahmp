@@ -40,6 +40,21 @@ class YahmpStudentOnPolicyRunnerCfg(YahmpOnPolicyRunnerCfg):
 
 
 @dataclass
+class YahmpLocomotionOnPolicyRunnerCfg(YahmpOnPolicyRunnerCfg):
+  """PPO runner config for the YAHMP locomotion task.
+
+  Loads a trained ``YahmpImitationModel`` checkpoint and freezes its
+  prior + Residual VQ + action_decoder inside the locomotion actor.
+  """
+
+  imitation_checkpoint_file: str | None = None
+  imitation_wandb_run_path: str | None = None
+  imitation_wandb_checkpoint_name: str | None = None
+  imitation_strict_load: bool = True
+  imitation_copy_normalizer_proprio_history: bool = True
+
+
+@dataclass
 class YahmpActionMatchingPpoAlgorithmCfg(RslRlPpoAlgorithmCfg):
   class_name: str = "yahmp.rl.action_matching_ppo_algorithm:YahmpActionMatchingPPO"
   bc_coef_start: float = 1.0

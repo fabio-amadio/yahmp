@@ -21,6 +21,7 @@ from yahmp.mdp import (
 )
 from yahmp.yahmp_env_cfg import make_env_cfg, make_no_res_env_cfg
 from yahmp.yahmp_future_env_cfg import make_future_env_cfg
+from yahmp.yahmp_locomotion_env_cfg import make_locomotion_env_cfg
 from yahmp.yahmp_student_env_cfg import make_student_env_cfg
 from yahmp.yahmp_teacher_env_cfg import make_teacher_env_cfg
 
@@ -236,3 +237,77 @@ def unitree_g1_yahmp_student_env_cfg(
 ) -> ManagerBasedRlEnvCfg:
   """Create the Unitree G1 YAHMP student-teacher configuration."""
   return _apply_unitree_g1_overrides(make_student_env_cfg(), play=play)
+
+
+def _apply_unitree_g1_locomotion_overrides(
+  cfg: ManagerBasedRlEnvCfg,
+  play: bool,
+) -> ManagerBasedRlEnvCfg:
+  """Apply Unitree G1 robot/sensor/DR overrides to the locomotion template."""
+  robot_cfg = get_g1_robot_cfg()
+  robot_cfg.collisions = (FULL_COLLISION_WITHOUT_SELF,)
+  assert robot_cfg.articulation is not None
+  robot_cfg.articulation = EntityArticulationInfoCfg(
+    actuators=_make_g1_delayed_actuators(robot_cfg.articulation.actuators),
+    soft_joint_pos_limit_factor=robot_cfg.articulation.soft_joint_pos_limit_factor,
+  )
+  cfg.scene.entities = {"robot": robot_cfg}
+
+  feet_ground_cfg = ContactSensorCfg(
+    name="feet_ground_contact",
+    primary=ContactMatch(
+      mode="subtree",
+      pattern=r"^(left_ankle_roll_link|right_ankle_roll_link)$",
+      entity="robot",
+    ),
+    secondary=ContactMatch(mode="body", pattern="terrain"),
+    fields=("found", "force"),
+    reduce="netforce",
+    num_slots=1,
+    track_air_time=True,
+  )
+  cfg.scene.sensors = (feet_ground_cfg,)
+
+  joint_pos_action = cfg.actions["joint_pos"]
+  assert isinstance(joint_pos_action, JointPositionActionCfg)
+  joint_pos_action.scale = dict(G1_ACTION_SCALE)
+
+  cfg.events["foot_friction"].params[
+    "asset_cfg"
+  ].geom_names = r"^(left|right)_foot[1-7]_collision$"
+  for observation_group in cfg.observations.values():
+    if observation_group is None or "friction_coeff" not in observation_group.terms:
+      continue
+    observation_group.terms["friction_coeff"].params[
+      "asset_cfg"
+    ].geom_names = r"^(left|right)_foot[1-7]_collision$"
+  cfg.events["base_com"].params["asset_cfg"].body_names = ("torso_link",)
+
+  for reward_name in ("foot_slip", "foot_clearance"):
+    if reward_name in cfg.rewards:
+      cfg.rewards[reward_name].params["asset_cfg"].site_names = (
+        "left_foot",
+        "right_foot",
+      )
+  if "upright" in cfg.rewards:
+    cfg.rewards["upright"].params["asset_cfg"].body_names = ("pelvis",)
+
+  cfg.viewer.body_name = "pelvis"
+
+  if play:
+    cfg.episode_length_s = int(1e9)
+    for observation_group in cfg.observations.values():
+      if observation_group is not None:
+        observation_group.enable_corruption = False
+    cfg.events.pop("push_robot", None)
+
+  return cfg
+
+
+def unitree_g1_yahmp_locomotion_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Create the Unitree G1 YAHMP omnidirectional locomotion configuration."""
+  return _apply_unitree_g1_locomotion_overrides(
+    make_locomotion_env_cfg(), play=play
+  )

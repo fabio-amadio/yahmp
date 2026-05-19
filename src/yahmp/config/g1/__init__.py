@@ -2,6 +2,7 @@ from mjlab.tasks.registry import register_mjlab_task
 
 from yahmp.rl import (
   YahmpImitationRunner,
+  YahmpLocomotionOnPolicyRunner,
   YahmpOnPolicyRunner,
   YahmpStudentOnPolicyRunner,
 )
@@ -9,6 +10,7 @@ from yahmp.rl import (
 from .env_cfgs import (
   unitree_g1_yahmp_env_cfg,
   unitree_g1_yahmp_future_env_cfg,
+  unitree_g1_yahmp_locomotion_env_cfg,
   unitree_g1_yahmp_no_res_env_cfg,
   unitree_g1_yahmp_student_env_cfg,
   unitree_g1_yahmp_teacher_env_cfg,
@@ -17,6 +19,7 @@ from .rl_cfg import (
   unitree_g1_yahmp_encdec_ppo_runner_cfg,
   unitree_g1_yahmp_future_ppo_runner_cfg,
   unitree_g1_yahmp_imitation_runner_cfg,
+  unitree_g1_yahmp_locomotion_runner_cfg,
   unitree_g1_yahmp_no_res_ppo_runner_cfg,
   unitree_g1_yahmp_ppo_runner_cfg,
   unitree_g1_yahmp_student_action_matching_rl_runner_cfg,
@@ -86,4 +89,12 @@ register_mjlab_task(
   play_env_cfg=unitree_g1_yahmp_student_env_cfg(play=True),
   rl_cfg=unitree_g1_yahmp_student_kl_matching_rl_runner_cfg(),
   runner_cls=YahmpStudentOnPolicyRunner,
+)
+
+register_mjlab_task(
+  task_id="Mjlab-YAHMP-Locomotion-Unitree-G1",
+  env_cfg=unitree_g1_yahmp_locomotion_env_cfg(),
+  play_env_cfg=unitree_g1_yahmp_locomotion_env_cfg(play=True),
+  rl_cfg=unitree_g1_yahmp_locomotion_runner_cfg(),
+  runner_cls=YahmpLocomotionOnPolicyRunner,
 )

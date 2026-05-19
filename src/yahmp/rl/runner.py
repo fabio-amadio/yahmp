@@ -10,6 +10,7 @@ from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 
 from yahmp.mdp.motion.base import MotionCommand
 from yahmp.rl.exporter import attach_onnx_metadata
+from yahmp.rl.locomotion_policy import YahmpLocomotionActorModel
 from yahmp.rl.motion_stats import dump_motion_stats
 from yahmp.rl.reward_logging import (
   install_actual_episode_length_reward_logging,
@@ -65,6 +66,8 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
     env: RslRlVecEnvWrapper, representation: str
   ) -> tuple[int, int] | None:
     env_unwrapped = env.unwrapped
+    if "motion" not in env_unwrapped.command_manager.active_terms:
+      return None
     motion_term = env_unwrapped.command_manager.get_term("motion")
     if not isinstance(motion_term, MotionCommand):
       return None
@@ -396,8 +399,117 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
       actor_cfg.setdefault("teacher_history_conv_strides", (2, 1))
       actor_cfg.setdefault("teacher_layer_norm", True)
 
+    cls._configure_locomotion_model_cfg(env, train_cfg, actor_cfg, critic_cfg)
+
     train_cfg["actor"] = actor_cfg
     train_cfg["critic"] = critic_cfg
+
+  @staticmethod
+  def _configure_locomotion_model_cfg(
+    env: RslRlVecEnvWrapper,
+    train_cfg: dict,
+    actor_cfg: dict,
+    critic_cfg: dict,
+  ) -> None:
+    """Auto-fill obs dims for the locomotion actor/critic.
+
+    The locomotion env exposes a `twist` velocity command instead of a
+    motion command, so the existing motion-based auto-config branches do
+    not apply. Layout used here matches that of the imitation pipeline:
+    ``[g_task | proprio | history]`` with one history step equal to
+    ``g_task + proprio``.
+    """
+    actor_class = str(actor_cfg.get("class_name", ""))
+    critic_class = str(critic_cfg.get("class_name", ""))
+
+    if "YahmpLocomotionActorModel" not in actor_class:
+      return
+
+    twist_term = None
+    try:
+      twist_term = env.unwrapped.command_manager.get_term("twist")
+    except Exception:
+      twist_term = None
+    if twist_term is None:
+      return
+
+    observation_manager = env.unwrapped.observation_manager
+    obs_dims = observation_manager.group_obs_dim
+
+    actor_group = YahmpOnPolicyRunner._obs_group_name(train_cfg, "actor", "actor")
+    actor_terms = observation_manager.active_terms[actor_group]
+    actor_term_dims = observation_manager._group_obs_term_dim[actor_group]
+    flat_actor_dims = {
+      name: int(math.prod(dims))
+      for name, dims in zip(actor_terms, actor_term_dims, strict=False)
+    }
+    goal_dim = flat_actor_dims["command"]
+    history_dim = flat_actor_dims["history"]
+    proprio_dim = (
+      int(obs_dims[actor_group][0]) - goal_dim - history_dim
+    )
+    history_step_dim = goal_dim + proprio_dim
+    if history_dim % history_step_dim != 0:
+      raise ValueError(
+        "YahmpLocomotionActorModel history dimension mismatch: "
+        f"history_dim={history_dim}, history_step_dim={history_step_dim}."
+      )
+    history_steps = max(history_dim // history_step_dim, 1)
+
+    actor_cfg.setdefault("task_goal_obs_dim", goal_dim)
+    actor_cfg.setdefault("proprio_obs_dim", proprio_dim)
+    actor_cfg.setdefault("history_steps", history_steps)
+    actor_cfg.setdefault("history_latent_dim", 128)
+    actor_cfg.setdefault("history_conv_channels", (64, 32))
+    actor_cfg.setdefault("history_conv_kernel_sizes", (4, 2))
+    actor_cfg.setdefault("history_conv_strides", (2, 1))
+    actor_cfg.setdefault("latent_dim", 128)
+    actor_cfg.setdefault("high_level_hidden_dims", (512, 512, 256, 128))
+    actor_cfg.setdefault("hidden_dims", (512, 512, 256, 128))
+    actor_cfg.setdefault("layer_norm", True)
+
+    if "YahmpCriticModel" not in critic_class:
+      return
+
+    critic_group = YahmpOnPolicyRunner._obs_group_name(train_cfg, "critic", "critic")
+    critic_terms = observation_manager.active_terms[critic_group]
+    critic_term_dims = observation_manager._group_obs_term_dim[critic_group]
+    flat_critic_dims = {
+      name: int(math.prod(dims))
+      for name, dims in zip(critic_terms, critic_term_dims, strict=False)
+    }
+    critic_history_dim = flat_critic_dims["policy_history"]
+    proprio_critic_dim = (
+      flat_critic_dims["base_ang_vel"]
+      + flat_critic_dims["projected_gravity"]
+      + flat_critic_dims["joint_pos"]
+      + flat_critic_dims["joint_vel"]
+      + flat_critic_dims["actions"]
+    )
+    privileged_dim = (
+      int(obs_dims[critic_group][0])
+      - goal_dim
+      - proprio_critic_dim
+      - critic_history_dim
+    )
+    critic_history_step_dim = goal_dim + proprio_critic_dim
+    if critic_history_dim % critic_history_step_dim != 0:
+      raise ValueError(
+        "YahmpLocomotionCriticModel history dimension mismatch: "
+        f"history_dim={critic_history_dim}, "
+        f"history_step_dim={critic_history_step_dim}."
+      )
+    critic_history_steps = max(critic_history_dim // critic_history_step_dim, 1)
+
+    critic_cfg.setdefault("current_motion_obs_dim", goal_dim)
+    critic_cfg.setdefault("proprio_obs_dim", proprio_critic_dim)
+    critic_cfg.setdefault("privileged_obs_dim", privileged_dim)
+    critic_cfg.setdefault("history_steps", critic_history_steps)
+    critic_cfg.setdefault("history_latent_dim", 128)
+    critic_cfg.setdefault("history_conv_channels", (64, 32))
+    critic_cfg.setdefault("history_conv_kernel_sizes", (4, 2))
+    critic_cfg.setdefault("history_conv_strides", (2, 1))
+    critic_cfg.setdefault("layer_norm", True)
 
   def save(self, path: str, infos=None) -> None:
     env_state = {"common_step_counter": self.env.unwrapped.common_step_counter}
@@ -460,6 +572,132 @@ def _normalize_gaussian_distribution_state_dict(state_dict: dict[str, Any]) -> N
     state_dict["distribution.std_param"] = state_dict.pop("std")
   if "log_std" in state_dict:
     state_dict["distribution.log_std_param"] = state_dict.pop("log_std")
+
+
+class YahmpLocomotionOnPolicyRunner(YahmpOnPolicyRunner):
+  """On-policy runner for the YAHMP omnidirectional locomotion task.
+
+  Loads a trained ``YahmpImitationModel`` checkpoint into the locomotion
+  actor (freezing the prior + RVQ + action_decoder) before PPO starts.
+  """
+
+  def __init__(
+    self,
+    env,
+    train_cfg: dict,
+    log_dir: str | None = None,
+    device: str = "cpu",
+    registry_name: str | None = None,
+  ) -> None:
+    self._yahmp_log_dir = Path(log_dir).resolve() if log_dir is not None else None
+    super().__init__(env, train_cfg, log_dir, device, registry_name=registry_name)
+    self._maybe_load_imitation_checkpoint()
+    self._assert_freezing_invariants()
+
+  def _imitation_checkpoint_path(self) -> Path | None:
+    checkpoint_file = self.cfg.get("imitation_checkpoint_file")
+    if checkpoint_file:
+      checkpoint_path = Path(str(checkpoint_file)).expanduser().resolve()
+      if not checkpoint_path.exists():
+        raise FileNotFoundError(
+          f"Imitation checkpoint file not found: {checkpoint_path}"
+        )
+      print(f"[INFO]: Using local imitation checkpoint: {checkpoint_path}")
+      return checkpoint_path
+
+    wandb_run_path = self.cfg.get("imitation_wandb_run_path")
+    if not wandb_run_path:
+      return None
+
+    if self._yahmp_log_dir is None:
+      raise ValueError(
+        "Cannot resolve imitation W&B checkpoint without a log directory."
+      )
+    log_root_path = self._yahmp_log_dir.parent
+    checkpoint_path, was_cached = get_wandb_checkpoint_path(
+      log_root_path,
+      Path(str(wandb_run_path)),
+      self.cfg.get("imitation_wandb_checkpoint_name"),
+    )
+    run_id = checkpoint_path.parent.name
+    cached_str = "cached" if was_cached else "downloaded"
+    print(
+      "[INFO]: Resolved imitation checkpoint: "
+      f"{checkpoint_path.name} (run: {run_id}, {cached_str})"
+    )
+    return checkpoint_path
+
+  @staticmethod
+  def _extract_imitation_state_dict(loaded: dict[str, Any]) -> dict[str, torch.Tensor]:
+    trainer_blob = loaded.get("trainer")
+    if isinstance(trainer_blob, dict) and "model" in trainer_blob:
+      return trainer_blob["model"]
+    if "model_state_dict" in loaded:
+      return loaded["model_state_dict"]
+    if "actor_state_dict" in loaded:
+      return loaded["actor_state_dict"]
+    raise ValueError(
+      "Imitation checkpoint does not contain a recognized model state dict. "
+      "Expected one of: trainer.model, model_state_dict, actor_state_dict."
+    )
+
+  def _maybe_load_imitation_checkpoint(self) -> None:
+    actor = getattr(self.alg, "actor", None)
+    if not isinstance(actor, YahmpLocomotionActorModel):
+      if any(
+        self.cfg.get(key)
+        for key in (
+          "imitation_checkpoint_file",
+          "imitation_wandb_run_path",
+          "imitation_wandb_checkpoint_name",
+        )
+      ):
+        raise ValueError(
+          "Imitation checkpoint options are only supported for "
+          "YahmpLocomotionActorModel runs."
+        )
+      return
+
+    checkpoint_path = self._imitation_checkpoint_path()
+    if checkpoint_path is None:
+      raise ValueError(
+        "YahmpLocomotionOnPolicyRunner requires an imitation checkpoint. "
+        "Set --agent.imitation-checkpoint-file or "
+        "--agent.imitation-wandb-run-path."
+      )
+
+    loaded = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
+    imitation_sd = self._extract_imitation_state_dict(loaded)
+    actor.load_imitation_weights(
+      imitation_sd,
+      strict=bool(self.cfg.get("imitation_strict_load", True)),
+      copy_normalizer_proprio_history=bool(
+        self.cfg.get("imitation_copy_normalizer_proprio_history", True)
+      ),
+    )
+    actor.train(self.alg.actor.training)
+
+  def _assert_freezing_invariants(self) -> None:
+    actor = getattr(self.alg, "actor", None)
+    if not isinstance(actor, YahmpLocomotionActorModel):
+      return
+    frozen_names = set(actor._frozen_eval_submodules) | {"rvq"}
+    trainable_names: set[str] = set()
+    for name, param in actor.named_parameters():
+      if not param.requires_grad:
+        continue
+      top = name.split(".", 1)[0]
+      trainable_names.add(top)
+    forbidden = trainable_names & frozen_names
+    if forbidden:
+      raise RuntimeError(
+        f"Locomotion actor has trainable parameters in frozen submodules: "
+        f"{sorted(forbidden)}."
+      )
+    print(
+      "[INFO]: Locomotion actor trainable top-level submodules: "
+      f"{sorted(trainable_names)}; frozen: {sorted(frozen_names)}."
+    )
 
 
 class YahmpStudentOnPolicyRunner(YahmpOnPolicyRunner):

@@ -29,6 +29,8 @@ def dump_motion_stats(
       "Expected one of: disabled, rolling_latest, all."
     )
 
+  if "motion" not in env.unwrapped.command_manager.active_terms:
+    return
   motion_term = env.unwrapped.command_manager.get_term("motion")
   if not isinstance(motion_term, MotionCommand):
     return

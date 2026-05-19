@@ -15,6 +15,9 @@ from yahmp.rl.config import (
   YahmpImitationRunnerCfg as YahmpImitationRunnerCfg,
 )
 from yahmp.rl.config import (
+  YahmpLocomotionOnPolicyRunnerCfg as YahmpLocomotionOnPolicyRunnerCfg,
+)
+from yahmp.rl.config import (
   YahmpStudentOnPolicyRunnerCfg as YahmpStudentOnPolicyRunnerCfg,
 )
 from yahmp.rl.distillation_runner import (
@@ -32,6 +35,9 @@ from yahmp.rl.imitation_trainer import ImitationTrainerCfg as ImitationTrainerCf
 from yahmp.rl.kl_matching_ppo_algorithm import (
   YahmpKlMatchingPPO as YahmpKlMatchingPPO,
 )
+from yahmp.rl.locomotion_policy import (
+  YahmpLocomotionActorModel as YahmpLocomotionActorModel,
+)
 from yahmp.rl.policy import MotionEncoder as MotionEncoder
 from yahmp.rl.policy import YahmpActorModel as YahmpActorModel
 from yahmp.rl.policy import YahmpCriticModel as YahmpCriticModel
@@ -43,6 +49,9 @@ from yahmp.rl.policy import (
 )
 from yahmp.rl.policy import YahmpFutureActorModel as YahmpFutureActorModel
 from yahmp.rl.policy import YahmpFutureCriticModel as YahmpFutureCriticModel
+from yahmp.rl.runner import (
+  YahmpLocomotionOnPolicyRunner as YahmpLocomotionOnPolicyRunner,
+)
 from yahmp.rl.runner import YahmpOnPolicyRunner as YahmpOnPolicyRunner
 from yahmp.rl.runner import YahmpStudentOnPolicyRunner as YahmpStudentOnPolicyRunner
 from yahmp.rl.student_teacher_policy import (

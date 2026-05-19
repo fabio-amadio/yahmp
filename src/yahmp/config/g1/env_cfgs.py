@@ -15,10 +15,10 @@ from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from yahmp.mdp import (
-  FutureJointRefAnchorRpMotionCommandCfg,
+  FutureJointPosAnchorRpMotionCommandCfg,
   HandBaseMotionCommandCfg,
-  JointRefAnchorRpMotionCommandCfg,
-  TeacherStudentJointRefAnchorRpMotionCommandCfg,
+  JointPosAnchorRpMotionCommandCfg,
+  TeacherStudentJointPosAnchorRpMotionCommandCfg,
 )
 from yahmp.yahmp_env_cfg import make_env_cfg
 from yahmp.yahmp_future_env_cfg import make_future_env_cfg
@@ -187,9 +187,9 @@ def _apply_unitree_g1_overrides(
   assert isinstance(
     motion_cmd,
     (
-      FutureJointRefAnchorRpMotionCommandCfg,
-      JointRefAnchorRpMotionCommandCfg,
-      TeacherStudentJointRefAnchorRpMotionCommandCfg,
+      FutureJointPosAnchorRpMotionCommandCfg,
+      JointPosAnchorRpMotionCommandCfg,
+      TeacherStudentJointPosAnchorRpMotionCommandCfg,
       HandBaseMotionCommandCfg,
     ),
   )

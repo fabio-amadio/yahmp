@@ -172,17 +172,17 @@ class PolicySpec:
         "motion representation."
       )
     if self.motion_command_class not in {
-      "JointRefAnchorRpMotionCommand",
-      "FutureJointRefAnchorRpMotionCommand",
+      "JointPosAnchorRpMotionCommand",
+      "FutureJointPosAnchorRpMotionCommand",
     }:
       raise NotImplementedError(
-        "This script supports only YAHMP JointRefAnchorRp-derived commands, got "
+        "This script supports only YAHMP JointPosAnchorRp-derived commands, got "
         f"`{self.motion_command_class}`."
       )
     expected_command_dim = self.motion_command_num_steps * (len(self.joint_names) + 6)
     if self.motion_command_dim != expected_command_dim:
       raise ValueError(
-        "This script supports only JointRefAnchorRp-style commands with per-step "
+        "This script supports only JointPosAnchorRp-style commands with per-step "
         "dim = num_joints + 6. Got motion_command_dim="
         f"{self.motion_command_dim}, num_steps={self.motion_command_num_steps}, "
         f"num_joints={len(self.joint_names)}."

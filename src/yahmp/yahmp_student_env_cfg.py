@@ -6,7 +6,7 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
 
 from yahmp import mdp
-from yahmp.mdp import TeacherStudentJointRefAnchorRpMotionCommandCfg
+from yahmp.mdp import TeacherStudentJointPosAnchorRpMotionCommandCfg
 from yahmp.yahmp_env_cfg import (
   _motion_command_kwargs,
   make_env_cfg,
@@ -39,7 +39,7 @@ def _teacher_actor_observation_group() -> ObservationGroupCfg:
 def make_student_env_cfg() -> ManagerBasedRlEnvCfg:
   """Create the YAHMP student task configuration."""
   cfg = make_env_cfg()
-  cfg.commands["motion"] = TeacherStudentJointRefAnchorRpMotionCommandCfg(
+  cfg.commands["motion"] = TeacherStudentJointPosAnchorRpMotionCommandCfg(
     **_student_motion_command_kwargs(),
     future_sampling_step_offsets=FUTURE_STEPS,
   )

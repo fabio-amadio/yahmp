@@ -18,7 +18,7 @@ from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
 from yahmp import mdp
-from yahmp.mdp import JointRefAnchorRpMotionCommandCfg
+from yahmp.mdp import JointPosAnchorRpMotionCommandCfg
 
 HISTORY_LENGTH = 10
 
@@ -443,7 +443,7 @@ def make_env_cfg() -> ManagerBasedRlEnvCfg:
   }
 
   commands: dict[str, CommandTermCfg] = {
-    "motion": JointRefAnchorRpMotionCommandCfg(**_motion_command_kwargs())
+    "motion": JointPosAnchorRpMotionCommandCfg(**_motion_command_kwargs())
   }
 
   return ManagerBasedRlEnvCfg(

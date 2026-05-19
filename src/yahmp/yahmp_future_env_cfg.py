@@ -4,7 +4,7 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
 
 from yahmp import mdp
-from yahmp.mdp import FutureJointRefAnchorRpMotionCommandCfg
+from yahmp.mdp import FutureJointPosAnchorRpMotionCommandCfg
 from yahmp.yahmp_env_cfg import (
   _history_term,
   _motion_command_kwargs,
@@ -67,7 +67,7 @@ def make_future_env_cfg() -> ManagerBasedRlEnvCfg:
     ),
   }
 
-  cfg.commands["motion"] = FutureJointRefAnchorRpMotionCommandCfg(
+  cfg.commands["motion"] = FutureJointPosAnchorRpMotionCommandCfg(
     **_motion_command_kwargs(),
     command_step_offsets=(0, *FUTURE_STEPS),
   )

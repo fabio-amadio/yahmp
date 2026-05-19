@@ -1,4 +1,4 @@
-"""Synchronized student/teacher joint-reference commands for distillation."""
+"""Synchronized student/teacher joint-position commands for distillation."""
 
 from __future__ import annotations
 
@@ -8,19 +8,19 @@ from typing import TYPE_CHECKING
 import torch
 
 from .base import MotionCommand
-from .joint_ref import JointRefAnchorRpMotionCommand, JointRefAnchorRpMotionCommandCfg
+from .joint_ref import JointPosAnchorRpMotionCommand, JointPosAnchorRpMotionCommandCfg
 from .representations import (
-  future_joint_ref_anchor_rp_representation,
+  future_joint_pos_anchor_rp_representation,
 )
 
 if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
 
 
-class TeacherStudentJointRefAnchorRpMotionCommand(JointRefAnchorRpMotionCommand):
-  """Joint-ref+anchor+roll/pitch student command with synchronized teacher view."""
+class TeacherStudentJointPosAnchorRpMotionCommand(JointPosAnchorRpMotionCommand):
+  """Joint-pos+anchor+roll/pitch student command with synchronized teacher view."""
 
-  cfg: TeacherStudentJointRefAnchorRpMotionCommandCfg
+  cfg: TeacherStudentJointPosAnchorRpMotionCommandCfg
 
   @property
   def command_representation_names(self) -> tuple[str, ...]:
@@ -31,7 +31,7 @@ class TeacherStudentJointRefAnchorRpMotionCommand(JointRefAnchorRpMotionCommand)
   ) -> torch.Tensor:
     if representation_name == "teacher":
       frames = self.query_motion_frames(self.cfg.future_sampling_step_offsets)
-      return future_joint_ref_anchor_rp_representation(frames).reshape(
+      return future_joint_pos_anchor_rp_representation(frames).reshape(
         self.num_envs, -1
       )
     return super().get_command_representation(representation_name)
@@ -42,7 +42,7 @@ class TeacherStudentJointRefAnchorRpMotionCommand(JointRefAnchorRpMotionCommand)
 
 
 @dataclass(kw_only=True)
-class TeacherStudentJointRefAnchorRpMotionCommandCfg(JointRefAnchorRpMotionCommandCfg):
+class TeacherStudentJointPosAnchorRpMotionCommandCfg(JointPosAnchorRpMotionCommandCfg):
   """Configuration for synchronized YAHMP-style student and teacher command views."""
 
   future_sampling_step_offsets: tuple[int, ...] = ()
@@ -51,6 +51,6 @@ class TeacherStudentJointRefAnchorRpMotionCommandCfg(JointRefAnchorRpMotionComma
     if len(self.future_sampling_step_offsets) == 0:
       raise ValueError(
         "`future_sampling_step_offsets` must be non-empty for "
-        "TeacherStudentJointRefAnchorRpMotionCommandCfg."
+        "TeacherStudentJointPosAnchorRpMotionCommandCfg."
       )
-    return TeacherStudentJointRefAnchorRpMotionCommand(self, env)
+    return TeacherStudentJointPosAnchorRpMotionCommand(self, env)

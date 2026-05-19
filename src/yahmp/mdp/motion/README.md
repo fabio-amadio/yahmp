@@ -2,12 +2,12 @@
 
 Internal implementation of YAHMP motion commands:
 
-- `JointRefAnchorRpMotionCommandCfg`
-- `FutureJointRefAnchorRpMotionCommandCfg`
-- `TeacherStudentJointRefAnchorRpMotionCommandCfg`
+- `JointPosAnchorRpMotionCommandCfg`
+- `JointStateAnchorRpMotionCommandCfg`
+- `FutureJointPosAnchorRpMotionCommandCfg`
+- `FutureJointStateAnchorRpMotionCommandCfg`
+- `TeacherStudentJointPosAnchorRpMotionCommandCfg`
 - `HandBaseMotionCommandCfg`
-
-`HandBase` is kept only as a minimal example command. The YAHMP environments use the joint-reference family.
 
 ## Files
 

@@ -12,14 +12,14 @@ from mjlab.utils.lab_api.math import (
 from .library import MotionFrameBatch
 
 
-def joint_ref_anchor_rp_representation(
+def joint_pos_anchor_rp_representation(
   joint_pos: torch.Tensor,
   anchor_pos_w: torch.Tensor,
   anchor_quat_w: torch.Tensor,
   anchor_lin_vel_w: torch.Tensor,
   anchor_ang_vel_w: torch.Tensor,
 ) -> torch.Tensor:
-  """Serialize current joint refs with anchor motion terms and roll/pitch."""
+  """Serialize current joint positions with anchor motion terms and roll/pitch."""
   anchor_lin_vel_b = quat_apply_inverse(anchor_quat_w, anchor_lin_vel_w)
   anchor_ang_vel_b = quat_apply_inverse(anchor_quat_w, anchor_ang_vel_w)
   roll, pitch, _ = _quat_roll_pitch_yaw(anchor_quat_w)
@@ -36,14 +36,61 @@ def joint_ref_anchor_rp_representation(
   )
 
 
-def future_joint_ref_anchor_rp_representation(frames: MotionFrameBatch) -> torch.Tensor:
-  """Serialize future joint refs with anchor motion terms and roll/pitch."""
+def joint_state_anchor_rp_representation(
+  joint_pos: torch.Tensor,
+  joint_vel: torch.Tensor,
+  anchor_pos_w: torch.Tensor,
+  anchor_quat_w: torch.Tensor,
+  anchor_lin_vel_w: torch.Tensor,
+  anchor_ang_vel_w: torch.Tensor,
+) -> torch.Tensor:
+  """Serialize current joint positions and velocities with anchor terms."""
+  anchor_lin_vel_b = quat_apply_inverse(anchor_quat_w, anchor_lin_vel_w)
+  anchor_ang_vel_b = quat_apply_inverse(anchor_quat_w, anchor_ang_vel_w)
+  roll, pitch, _ = _quat_roll_pitch_yaw(anchor_quat_w)
+  return torch.cat(
+    (
+      joint_pos,
+      joint_vel,
+      anchor_lin_vel_b[..., :2],
+      anchor_ang_vel_b[..., 2:3],
+      anchor_pos_w[..., 2:3],
+      roll[..., None],
+      pitch[..., None],
+    ),
+    dim=-1,
+  )
+
+
+def future_joint_pos_anchor_rp_representation(frames: MotionFrameBatch) -> torch.Tensor:
+  """Serialize future joint positions with anchor motion terms and roll/pitch."""
   anchor_lin_vel_b = quat_apply_inverse(frames.anchor_quat_w, frames.anchor_lin_vel_w)
   anchor_ang_vel_b = quat_apply_inverse(frames.anchor_quat_w, frames.anchor_ang_vel_w)
   roll, pitch, _ = _quat_roll_pitch_yaw(frames.anchor_quat_w)
   return torch.cat(
     [
       frames.joint_pos,
+      anchor_lin_vel_b[..., :2],
+      anchor_ang_vel_b[..., 2:3],
+      frames.anchor_pos_w[..., 2:3],
+      roll[..., None],
+      pitch[..., None],
+    ],
+    dim=-1,
+  )
+
+
+def future_joint_state_anchor_rp_representation(
+  frames: MotionFrameBatch,
+) -> torch.Tensor:
+  """Serialize future joint positions and velocities with anchor terms."""
+  anchor_lin_vel_b = quat_apply_inverse(frames.anchor_quat_w, frames.anchor_lin_vel_w)
+  anchor_ang_vel_b = quat_apply_inverse(frames.anchor_quat_w, frames.anchor_ang_vel_w)
+  roll, pitch, _ = _quat_roll_pitch_yaw(frames.anchor_quat_w)
+  return torch.cat(
+    [
+      frames.joint_pos,
+      frames.joint_vel,
       anchor_lin_vel_b[..., :2],
       anchor_ang_vel_b[..., 2:3],
       frames.anchor_pos_w[..., 2:3],

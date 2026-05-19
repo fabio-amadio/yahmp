@@ -179,13 +179,11 @@ class PolicySpec:
         "This script supports only YAHMP JointRefAnchorRp-derived commands, got "
         f"`{self.motion_command_class}`."
       )
-    expected_command_dim = self.motion_command_num_steps * (
-      2 * len(self.joint_names) + 6
-    )
+    expected_command_dim = self.motion_command_num_steps * (len(self.joint_names) + 6)
     if self.motion_command_dim != expected_command_dim:
       raise ValueError(
         "This script supports only JointRefAnchorRp-style commands with per-step "
-        "dim = 2 * num_joints + 6. Got motion_command_dim="
+        "dim = num_joints + 6. Got motion_command_dim="
         f"{self.motion_command_dim}, num_steps={self.motion_command_num_steps}, "
         f"num_joints={len(self.joint_names)}."
       )
@@ -574,7 +572,6 @@ def _single_command_step_value(frame: MotionFrame) -> np.ndarray:
   anchor_ang_vel_b = _quat_rotate_inverse(frame.root_quat_w, frame.root_ang_vel_w)
   parts = [
     frame.joint_pos,
-    frame.joint_vel,
     anchor_lin_vel_b[:2],
     anchor_ang_vel_b[2:3],
     frame.root_pos_w[2:3],

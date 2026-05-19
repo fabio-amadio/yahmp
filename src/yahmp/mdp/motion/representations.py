@@ -14,7 +14,6 @@ from .library import MotionFrameBatch
 
 def joint_ref_anchor_rp_representation(
   joint_pos: torch.Tensor,
-  joint_vel: torch.Tensor,
   anchor_pos_w: torch.Tensor,
   anchor_quat_w: torch.Tensor,
   anchor_lin_vel_w: torch.Tensor,
@@ -27,7 +26,6 @@ def joint_ref_anchor_rp_representation(
   return torch.cat(
     (
       joint_pos,
-      joint_vel,
       anchor_lin_vel_b[..., :2],
       anchor_ang_vel_b[..., 2:3],
       anchor_pos_w[..., 2:3],
@@ -46,7 +44,6 @@ def future_joint_ref_anchor_rp_representation(frames: MotionFrameBatch) -> torch
   return torch.cat(
     [
       frames.joint_pos,
-      frames.joint_vel,
       anchor_lin_vel_b[..., :2],
       anchor_ang_vel_b[..., 2:3],
       frames.anchor_pos_w[..., 2:3],

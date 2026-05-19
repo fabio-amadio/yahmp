@@ -40,10 +40,10 @@ HAND_FORCE_CURRICULUM_STAGES = [
     "step": 15_000 * 24,
     "feasible_force_fraction_range": (0.10, 0.30),
   },
-  {
-    "step": 22_500 * 24,
-    "feasible_force_fraction_range": (0.15, 0.45),
-  },
+  # {
+  #   "step": 22_500 * 24,
+  #   "feasible_force_fraction_range": (0.15, 0.45),
+  # },
   # {
   #   "step": 29_000 * 24,
   #   "feasible_force_fraction_range": (0.20, 0.60),
@@ -204,7 +204,7 @@ def _events() -> dict[str, EventTermCfg]:
           ".*_wrist_.*_joint",
         ),
         "feasible_force_fraction_range": (0.02, 0.10),
-        "max_force_magnitude": 50.0,
+        "max_force_magnitude": 30.0,
         "force_ramp_time_fraction": 0.15,
         "dirichlet_alpha": 1.0,
         "subtract_commanded_torque_margin": True,
@@ -293,12 +293,12 @@ def _rewards() -> dict[str, RewardTermCfg]:
   return {
     "motion_global_root_pos": RewardTermCfg(
       func=tracking_mdp.motion_global_anchor_position_error_exp,
-      weight=0.5,
+      weight=1.0,
       params={"command_name": "motion", "std": 0.3},
     ),
     "motion_global_root_ori": RewardTermCfg(
       func=tracking_mdp.motion_global_anchor_orientation_error_exp,
-      weight=0.5,
+      weight=1.0,
       params={"command_name": "motion", "std": 0.4},
     ),
     "motion_body_pos": RewardTermCfg(
@@ -313,12 +313,12 @@ def _rewards() -> dict[str, RewardTermCfg]:
     ),
     "motion_body_lin_vel": RewardTermCfg(
       func=tracking_mdp.motion_global_body_linear_velocity_error_exp,
-      weight=1.0,
+      weight=0.5,
       params={"command_name": "motion", "std": 1.0},
     ),
     "motion_body_ang_vel": RewardTermCfg(
       func=tracking_mdp.motion_global_body_angular_velocity_error_exp,
-      weight=1.0,
+      weight=0.5,
       params={"command_name": "motion", "std": 3.14},
     ),
     "motion_joint_pos": RewardTermCfg(
@@ -328,12 +328,12 @@ def _rewards() -> dict[str, RewardTermCfg]:
     ),
     "motion_joint_vel": RewardTermCfg(
       func=mdp.motion_joint_velocity_error_exp,
-      weight=0.5,
+      weight=0.05,
       params={"command_name": "motion", "std": 2.0},
     ),
     "motion_feet_contact_schedule": RewardTermCfg(
       func=mdp.motion_feet_contact_schedule,
-      weight=0.3,
+      weight=0.5,
       params={
         "command_name": "motion",
         "sensor_name": "feet_ground_contact",
@@ -341,7 +341,7 @@ def _rewards() -> dict[str, RewardTermCfg]:
     ),
     "feet_contact_forces": RewardTermCfg(
       func=mdp.feet_contact_force_excess,
-      weight=-5.0e-4,
+      weight=-5.0e-3,
       params={"sensor_name": "feet_ground_contact", "max_contact_force": 300.0},
     ),
     "feet_slip": RewardTermCfg(
@@ -357,18 +357,18 @@ def _rewards() -> dict[str, RewardTermCfg]:
     ),
     "joint_torques_l2": RewardTermCfg(
       func=mdp.joint_torques_l2,
-      weight=-1.0e-5,
+      weight=-5.0e-5,
       params={"asset_cfg": SceneEntityCfg("robot", actuator_names=(".*",))},
     ),
     "joint_acc_l2": RewardTermCfg(
       func=mdp.joint_acc_l2,
-      weight=-1.0e-7,
+      weight=-5.0e-7,
       params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
     ),
     "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-1e-1),
     "joint_limit": RewardTermCfg(
       func=mdp.joint_pos_limits,
-      weight=-10.0,
+      weight=-15.0,
       params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
     ),
     # Keep this commented out while using the no-self-collision G1 preset.

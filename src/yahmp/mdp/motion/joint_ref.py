@@ -25,7 +25,6 @@ class JointRefAnchorRpMotionCommand(MotionCommand):
     if representation_name == "default":
       return joint_ref_anchor_rp_representation(
         self.joint_pos,
-        self.joint_vel,
         self.anchor_pos_w,
         self.anchor_quat_w,
         self.anchor_lin_vel_w,

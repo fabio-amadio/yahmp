@@ -39,6 +39,20 @@ uv run python -m yahmp.scripts.data.render_reference_motions \
   --overwrite
 ```
 
+### `plot_reference_motion_joints.py`
+
+Plot joint-by-joint position and velocity trajectories for one reference motion:
+
+```bash
+uv run python -m yahmp.scripts.data.plot_reference_motion_joints \
+  assets/motions/g1_omomo_amass_clean/<motion-name>.npz \
+  --joints left_hip_pitch_joint left_knee_joint right_knee_joint
+```
+
+Use `--joints all` to open one figure per joint, or pass zero-based joint
+indices for non-G1 motion files. Add `--output path/to/plot.png --no-show` for
+save-only batch usage.
+
 ## Deployment
 
 ### `export_checkpoint_to_onnx.py`

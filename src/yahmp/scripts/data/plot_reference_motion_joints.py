@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import pickle
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -45,14 +46,37 @@ G1_JOINT_ORDER = (
   "right_wrist_pitch_joint",
   "right_wrist_yaw_joint",
 )
+PLOT_COLORS = (
+  "#1f77b4",
+  "#ff7f0e",
+  "#2ca02c",
+  "#d62728",
+  "#9467bd",
+  "#8c564b",
+  "#e377c2",
+  "#7f7f7f",
+)
+
+
+@dataclass(frozen=True)
+class JointMotionWindow:
+  path: Path
+  fps: float
+  times: np.ndarray
+  joint_pos: np.ndarray
+  joint_vel: np.ndarray
 
 
 def parse_args() -> argparse.Namespace:
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument(
-    "motion_file",
+    "motion_files",
     type=Path,
-    help="Reference motion file to plot. Supports YAHMP .npz and TWIST2-style .pkl.",
+    nargs="+",
+    help=(
+      "Reference motion file(s) to plot. Pass two files to overlay and compare them. "
+      "Supports YAHMP .npz and TWIST2-style .pkl."
+    ),
   )
   parser.add_argument(
     "--output",
@@ -242,24 +266,43 @@ def _joint_output_path(base_output: Path, joint_name: str, multi_joint: bool) ->
   )
 
 
+def _label_for_motion(
+  motion: JointMotionWindow, all_motions: list[JointMotionWindow]
+) -> str:
+  stems = [item.path.stem for item in all_motions]
+  if stems.count(motion.path.stem) == 1:
+    return motion.path.stem
+  return motion.path.name
+
+
 def _plot_joint(
   figure: Any,
   axes: tuple[Any, Any],
-  times: np.ndarray,
-  joint_pos: np.ndarray,
-  joint_vel: np.ndarray,
+  motions: list[JointMotionWindow],
   joint_index: int,
   joint_name: str,
-  motion_file: Path,
-  fps: float,
 ) -> None:
   pos_ax, vel_ax = axes
-  pos_ax.plot(times, joint_pos[:, joint_index], linewidth=1.25, color="#1f77b4")
-  vel_ax.plot(times, joint_vel[:, joint_index], linewidth=1.25, color="#d62728")
+  for motion_id, motion in enumerate(motions):
+    color = PLOT_COLORS[motion_id % len(PLOT_COLORS)]
+    label = _label_for_motion(motion, motions)
+    pos_ax.plot(
+      motion.times,
+      motion.joint_pos[:, joint_index],
+      linewidth=1.25,
+      color=color,
+      label=label,
+    )
+    vel_ax.plot(
+      motion.times,
+      motion.joint_vel[:, joint_index],
+      linewidth=1.25,
+      color=color,
+      label=label,
+    )
 
-  figure.suptitle(
-    f"{joint_name} | {motion_file.name} | {joint_pos.shape[0]} frames at {fps:.3g} fps"
-  )
+  reference_count = len(motions)
+  figure.suptitle(f"{joint_name} | {reference_count} reference motion(s)")
   pos_ax.set_ylabel("Position [rad]")
   vel_ax.set_ylabel("Velocity [rad/s]")
   vel_ax.set_xlabel("Time [s]")
@@ -267,15 +310,13 @@ def _plot_joint(
   vel_ax.grid(True, alpha=0.25)
   pos_ax.set_title("Position")
   vel_ax.set_title("Velocity")
+  pos_ax.legend(loc="upper right", fontsize="small")
+  vel_ax.legend(loc="upper right", fontsize="small")
 
 
 def plot_motion(
-  motion_file: Path,
+  motions: list[JointMotionWindow],
   output_path: Path | None,
-  fps: float,
-  times: np.ndarray,
-  joint_pos: np.ndarray,
-  joint_vel: np.ndarray,
   indices: list[int],
   joint_names: tuple[str, ...],
   dpi: int,
@@ -291,13 +332,9 @@ def plot_motion(
     _plot_joint(
       figure,
       (axes[0], axes[1]),
-      times,
-      joint_pos,
-      joint_vel,
+      motions,
       index,
       joint_name,
-      motion_file,
-      fps,
     )
     figure.tight_layout()
     figures.append(figure)
@@ -316,24 +353,41 @@ def plot_motion(
 
 def main() -> None:
   args = parse_args()
-  fps, joint_pos, joint_vel = load_joint_motion(args.motion_file)
-  joint_names = joint_names_for_count(joint_pos.shape[1])
+  loaded_motions: list[JointMotionWindow] = []
+  expected_joint_count: int | None = None
+  for motion_file in args.motion_files:
+    fps, joint_pos, joint_vel = load_joint_motion(motion_file)
+    if expected_joint_count is None:
+      expected_joint_count = joint_pos.shape[1]
+    elif joint_pos.shape[1] != expected_joint_count:
+      raise ValueError(
+        "All reference motions must have the same joint count: "
+        f"expected {expected_joint_count}, got {joint_pos.shape[1]} in {motion_file}"
+      )
+    times, window_pos, window_vel = slice_time_window(
+      fps,
+      joint_pos,
+      joint_vel,
+      args.start,
+      args.end,
+    )
+    loaded_motions.append(
+      JointMotionWindow(
+        path=motion_file,
+        fps=fps,
+        times=times,
+        joint_pos=window_pos,
+        joint_vel=window_vel,
+      )
+    )
+
+  assert expected_joint_count is not None
+  joint_names = joint_names_for_count(expected_joint_count)
   indices = resolve_joint_indices(tuple(args.joints), joint_names)
-  times, window_pos, window_vel = slice_time_window(
-    fps,
-    joint_pos,
-    joint_vel,
-    args.start,
-    args.end,
-  )
   output_path = args.output
   plot_motion(
-    motion_file=args.motion_file,
+    motions=loaded_motions,
     output_path=output_path,
-    fps=fps,
-    times=times,
-    joint_pos=window_pos,
-    joint_vel=window_vel,
     indices=indices,
     joint_names=joint_names,
     dpi=args.dpi,

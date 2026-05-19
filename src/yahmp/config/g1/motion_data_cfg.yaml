@@ -7,4 +7,4 @@ subfolders:
   - name: g1_mpc_basic_ref
     weight: 10.0
   - name: g1_mpc_locomanip_ref
-    weight: 10.0
+    weight: 20.0

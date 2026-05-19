@@ -203,3 +203,40 @@ def feet_slip(
   foot_speed = torch.norm(asset.data.body_link_lin_vel_w[:, body_ids, :2], dim=-1)
   slip = torch.sqrt(foot_speed) * contact.float()
   return torch.sum(slip, dim=-1)
+
+
+def motion_feet_contact_schedule(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  sensor_name: str,
+) -> torch.Tensor:
+  """Reward matching MPC reference foot stance/swing flags when available.
+
+  Motions without ``contact_flags`` metadata return zero reward, so mixed motion
+  datasets can keep using non-MPC clips without heuristic contact labels.
+  """
+  command = cast(MotionCommand, env.command_manager.get_term(command_name))
+  ref_contact = command.contact_flags
+  if ref_contact is None or ref_contact.shape[-1] == 0:
+    return torch.zeros(env.num_envs, device=env.device)
+
+  sensor: ContactSensor = env.scene[sensor_name]
+  assert sensor.data.found is not None
+  actual_contact = sensor.data.found > 0
+  while actual_contact.ndim > 2:
+    actual_contact = torch.any(actual_contact, dim=-1)
+
+  if actual_contact.shape != ref_contact.shape:
+    raise ValueError(
+      "Foot contact schedule reward expects sensor contact shape to match "
+      "reference contact_flags shape. "
+      f"Got {actual_contact.shape} vs {ref_contact.shape}."
+    )
+
+  ref_contact_bool = ref_contact > 0.5
+  contact_match = (actual_contact == ref_contact_bool).to(torch.float32).mean(dim=-1)
+  return torch.where(
+    command.has_contact_flags,
+    contact_match,
+    torch.zeros_like(contact_match),
+  )

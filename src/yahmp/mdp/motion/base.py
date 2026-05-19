@@ -434,9 +434,17 @@ class MotionCommand(CommandTerm):
     anchor_quat_w: torch.Tensor,
     anchor_lin_vel_w: torch.Tensor,
     anchor_ang_vel_w: torch.Tensor,
+    contact_flags: torch.Tensor | None = None,
+    has_contact_flags: torch.Tensor | None = None,
   ) -> MotionFrameBatch:
     """Pack flattened query results into the standard [env, step, ...] batch form."""
     num_bodies = len(self.cfg.body_names)
+    contact_flags_batched = None
+    if contact_flags is not None:
+      contact_flags_batched = contact_flags.reshape(self.num_envs, num_steps, -1)
+    has_contact_flags_batched = None
+    if has_contact_flags is not None:
+      has_contact_flags_batched = has_contact_flags.reshape(self.num_envs, num_steps)
     return MotionFrameBatch(
       joint_pos=joint_pos.reshape(self.num_envs, num_steps, -1),
       joint_vel=joint_vel.reshape(self.num_envs, num_steps, -1),
@@ -448,6 +456,8 @@ class MotionCommand(CommandTerm):
       anchor_quat_w=anchor_quat_w.reshape(self.num_envs, num_steps, 4),
       anchor_lin_vel_w=anchor_lin_vel_w.reshape(self.num_envs, num_steps, 3),
       anchor_ang_vel_w=anchor_ang_vel_w.reshape(self.num_envs, num_steps, 3),
+      contact_flags=contact_flags_batched,
+      has_contact_flags=has_contact_flags_batched,
     )
 
   def _query_motion_frames_npz(self, step_offsets: tuple[int, ...]) -> MotionFrameBatch:
@@ -483,6 +493,9 @@ class MotionCommand(CommandTerm):
     anchor_ang_vel = self.motion.body_ang_vel_w[
       flat_frame_ids, self.motion_anchor_body_index
     ]
+    contact_flags = None
+    if self.motion.contact_flags is not None:
+      contact_flags = self.motion.contact_flags[flat_frame_ids]
 
     return self._reshape_motion_frame_batch(
       num_steps=num_steps,
@@ -496,6 +509,8 @@ class MotionCommand(CommandTerm):
       anchor_quat_w=anchor_quat,
       anchor_lin_vel_w=anchor_lin_vel,
       anchor_ang_vel_w=anchor_ang_vel,
+      contact_flags=contact_flags,
+      has_contact_flags=self.motion.has_contact_flags[flat_frame_ids],
     )
 
   def _query_motion_frames_library(
@@ -549,6 +564,8 @@ class MotionCommand(CommandTerm):
       anchor_quat_w=anchor_quat,
       anchor_lin_vel_w=anchor_lin_vel,
       anchor_ang_vel_w=anchor_ang_vel,
+      contact_flags=flat_frames.contact_flags,
+      has_contact_flags=flat_frames.has_contact_flags,
     )
 
   @property
@@ -612,6 +629,17 @@ class MotionCommand(CommandTerm):
       return getattr(self._current_motion_frame, name)
     assert self.motion is not None
     return getattr(self.motion, name)[self.time_steps]
+
+  def _optional_reference_frame_tensor(self, name: str) -> torch.Tensor | None:
+    """Return an optional current reference tensor from the active motion source."""
+    if self._uses_motion_library:
+      assert self._current_motion_frame is not None
+      return getattr(self._current_motion_frame, name)
+    assert self.motion is not None
+    tensor = getattr(self.motion, name)
+    if tensor is None:
+      return None
+    return tensor[self.time_steps]
 
   def _reference_body_tensor(self, name: str) -> torch.Tensor:
     """Return the tracked-body slice of the current reference tensor."""
@@ -697,6 +725,15 @@ class MotionCommand(CommandTerm):
     return self._reference_single_body_tensor(
       "body_ang_vel_w", self.motion_root_body_index
     )
+
+  @property
+  def contact_flags(self) -> torch.Tensor | None:
+    return self._optional_reference_frame_tensor("contact_flags")
+
+  @property
+  def has_contact_flags(self) -> torch.Tensor:
+    has_flags = self._reference_frame_tensor("has_contact_flags")
+    return has_flags.to(dtype=torch.bool)
 
   @property
   def robot_joint_pos(self) -> torch.Tensor:

@@ -331,6 +331,14 @@ def _rewards() -> dict[str, RewardTermCfg]:
       weight=0.5,
       params={"command_name": "motion", "std": 2.0},
     ),
+    "motion_feet_contact_schedule": RewardTermCfg(
+      func=mdp.motion_feet_contact_schedule,
+      weight=0.3,
+      params={
+        "command_name": "motion",
+        "sensor_name": "feet_ground_contact",
+      },
+    ),
     "feet_contact_forces": RewardTermCfg(
       func=mdp.feet_contact_force_excess,
       weight=-5.0e-4,

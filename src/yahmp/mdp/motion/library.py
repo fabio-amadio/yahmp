@@ -49,6 +49,18 @@ class MotionLoader:
       payload.body_ang_vel_w, dtype=torch.float32, device=device
     )
     self.body_names = payload.body_names
+    self.contact_flags = (
+      None
+      if payload.contact_flags is None
+      else torch.tensor(payload.contact_flags, dtype=torch.float32, device=device)
+    )
+    self.has_contact_flags = torch.full(
+      (self.joint_pos.shape[0],),
+      payload.contact_flags is not None,
+      dtype=torch.bool,
+      device=device,
+    )
+    self.contact_names = payload.contact_names
 
     self.time_step_total = self.joint_pos.shape[0]
 
@@ -80,6 +92,8 @@ class MotionFrameBatch:
   anchor_quat_w: torch.Tensor
   anchor_lin_vel_w: torch.Tensor
   anchor_ang_vel_w: torch.Tensor
+  contact_flags: torch.Tensor | None = None
+  has_contact_flags: torch.Tensor | None = None
 
 
 @dataclass(frozen=True)
@@ -94,6 +108,8 @@ class LoadedMotionData:
   body_lin_vel_w: np.ndarray
   body_ang_vel_w: np.ndarray
   body_names: tuple[str, ...]
+  contact_flags: np.ndarray | None = None
+  contact_names: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -110,6 +126,8 @@ class RawMotionData:
   body_lin_vel_w: np.ndarray | None = None
   body_ang_vel_w: np.ndarray | None = None
   body_names: tuple[str, ...] | None = None
+  contact_flags: np.ndarray | None = None
+  contact_names: tuple[str, ...] | None = None
 
 
 def load_motion_file(
@@ -147,6 +165,8 @@ def load_motion_file(
     body_lin_vel_w=payload.body_lin_vel_w[:, selected_indices, :],
     body_ang_vel_w=payload.body_ang_vel_w[:, selected_indices, :],
     body_names=selected_body_names,
+    contact_flags=payload.contact_flags,
+    contact_names=payload.contact_names,
   )
 
 
@@ -208,6 +228,18 @@ def _extract_npz_body_names(
     return names
   if sidecar_meta is not None and "body_names" in sidecar_meta:
     return tuple(str(value) for value in sidecar_meta["body_names"])
+  return None
+
+
+def _extract_npz_contact_names(
+  data: Any,
+  sidecar_meta: dict[str, Any] | None,
+) -> tuple[str, ...] | None:
+  if "contact_names" in data:
+    flat_values = np.asarray(data["contact_names"]).reshape(-1)
+    return tuple(MotionLoader._decode_name(v) for v in flat_values.tolist())
+  if sidecar_meta is not None and "contact_names" in sidecar_meta:
+    return tuple(str(value) for value in sidecar_meta["contact_names"])
   return None
 
 
@@ -305,6 +337,27 @@ def _validate_body_shapes(
     )
 
 
+def _validate_contact_shapes(
+  *,
+  source: Path,
+  num_frames: int,
+  contact_flags: np.ndarray | None,
+  contact_names: tuple[str, ...] | None,
+) -> None:
+  if contact_flags is None:
+    return
+  if contact_flags.ndim != 2 or contact_flags.shape[0] != num_frames:
+    raise ValueError(
+      f"Invalid contact_flags shape in {source}: {contact_flags.shape}. "
+      f"Expected ({num_frames}, num_contacts)."
+    )
+  if contact_names is not None and len(contact_names) != contact_flags.shape[1]:
+    raise ValueError(
+      f"Invalid contact_names length in {source}: {len(contact_names)} "
+      f"for {contact_flags.shape[1]} contacts."
+    )
+
+
 def _fk_body_kinematics(
   *,
   source: Path,
@@ -379,6 +432,12 @@ def _finalize_motion_data(raw: RawMotionData, *, source: Path) -> LoadedMotionDa
     else np.asarray(raw.body_ang_vel_w, dtype=np.float32)
   )
   body_names = raw.body_names
+  contact_flags = (
+    None
+    if raw.contact_flags is None
+    else np.asarray(raw.contact_flags, dtype=np.float32)
+  )
+  contact_names = raw.contact_names
 
   _validate_joint_root_shapes(
     source=source,
@@ -396,6 +455,14 @@ def _finalize_motion_data(raw: RawMotionData, *, source: Path) -> LoadedMotionDa
     body_ang_vel_w=body_ang_vel_w,
     body_names=body_names,
   )
+  _validate_contact_shapes(
+    source=source,
+    num_frames=joint_pos.shape[0],
+    contact_flags=contact_flags,
+    contact_names=contact_names,
+  )
+  if contact_flags is not None and contact_names is None:
+    contact_names = tuple(f"contact_{i}" for i in range(contact_flags.shape[1]))
 
   if body_pos_w is None or body_quat_w is None:
     if root_pos is None or root_quat_w is None:
@@ -427,6 +494,8 @@ def _finalize_motion_data(raw: RawMotionData, *, source: Path) -> LoadedMotionDa
     body_lin_vel_w=body_lin_vel_w.astype(np.float32),
     body_ang_vel_w=body_ang_vel_w.astype(np.float32),
     body_names=tuple(body_names),
+    contact_flags=contact_flags,
+    contact_names=contact_names,
   )
 
 
@@ -456,6 +525,8 @@ def _load_npz_motion(path: Path) -> LoadedMotionData:
       body_lin_vel_w=_extract_optional_array(data, "body_lin_vel_w", dtype=np.float32),
       body_ang_vel_w=_extract_optional_array(data, "body_ang_vel_w", dtype=np.float32),
       body_names=_extract_npz_body_names(data, sidecar_meta),
+      contact_flags=_extract_optional_array(data, "contact_flags", dtype=np.float32),
+      contact_names=_extract_npz_contact_names(data, sidecar_meta),
     )
   return _finalize_motion_data(raw, source=path)
 
@@ -690,8 +761,10 @@ class MotionLibrary:
     self.motion_files = tuple(Path(path) for path in motion_files)
 
     self.body_names: tuple[str, ...] | None = None
+    self.contact_names: tuple[str, ...] | None = None
     self._num_dof: int | None = None
     self._num_bodies: int | None = None
+    self._num_contacts: int | None = None
 
     motion_num_frames: list[int] = []
     motion_lengths_s: list[float] = []
@@ -702,6 +775,8 @@ class MotionLibrary:
     body_quat_w_list: list[torch.Tensor] = []
     body_lin_vel_w_list: list[torch.Tensor] = []
     body_ang_vel_w_list: list[torch.Tensor] = []
+    contact_flags_list: list[torch.Tensor | None] = []
+    has_contact_flags_list: list[torch.Tensor] = []
 
     for motion_file, motion_weight in self._iter_motion_entries(
       motion_files=motion_files,
@@ -731,6 +806,15 @@ class MotionLibrary:
       )
       body_ang_vel_w = torch.tensor(
         payload.body_ang_vel_w, dtype=torch.float32, device=self.device
+      )
+      contact_flags = (
+        None
+        if payload.contact_flags is None
+        else torch.tensor(
+          payload.contact_flags,
+          dtype=torch.float32,
+          device=self.device,
+        )
       )
 
       if joint_pos.ndim != 2:
@@ -797,6 +881,30 @@ class MotionLibrary:
         )
 
       num_frames = int(joint_pos.shape[0])
+      if contact_flags is not None:
+        if contact_flags.shape[0] != num_frames:
+          raise ValueError(
+            f"contact_flags frame count must match joint_pos in {motion_file}: "
+            f"{contact_flags.shape[0]} vs {num_frames}"
+          )
+        contact_names = payload.contact_names
+        if self.contact_names is None:
+          self.contact_names = contact_names
+          self._num_contacts = int(contact_flags.shape[1])
+        elif self.contact_names != contact_names:
+          raise ValueError(
+            "All motion files with contact flags must share contact name ordering. "
+            f"Mismatch in {motion_file}: expected {self.contact_names}, "
+            f"got {contact_names}."
+          )
+        assert self._num_contacts is not None
+        if self._num_contacts != int(contact_flags.shape[1]):
+          raise ValueError(
+            "All motion files with contact flags must share the same number of contacts. "
+            f"Expected {self._num_contacts}, got {contact_flags.shape[1]} "
+            f"in {motion_file}."
+          )
+
       motion_num_frames.append(num_frames)
       motion_lengths_s.append(dt * float(num_frames - 1))
       motion_weights.append(float(motion_weight))
@@ -806,6 +914,15 @@ class MotionLibrary:
       body_quat_w_list.append(body_quat_w)
       body_lin_vel_w_list.append(body_lin_vel_w)
       body_ang_vel_w_list.append(body_ang_vel_w)
+      contact_flags_list.append(contact_flags)
+      has_contact_flags_list.append(
+        torch.full(
+          (num_frames,),
+          contact_flags is not None,
+          dtype=torch.bool,
+          device=self.device,
+        )
+      )
 
     assert self.body_names is not None
     assert self._num_dof is not None
@@ -834,6 +951,23 @@ class MotionLibrary:
     self.body_quat_w = torch.cat(body_quat_w_list, dim=0)
     self.body_lin_vel_w = torch.cat(body_lin_vel_w_list, dim=0)
     self.body_ang_vel_w = torch.cat(body_ang_vel_w_list, dim=0)
+    num_contacts = 0 if self._num_contacts is None else self._num_contacts
+    self.contact_flags = torch.cat(
+      [
+        (
+          torch.zeros(
+            (num_frames, num_contacts),
+            dtype=torch.float32,
+            device=self.device,
+          )
+          if flags is None
+          else flags
+        )
+        for flags, num_frames in zip(contact_flags_list, motion_num_frames, strict=True)
+      ],
+      dim=0,
+    )
+    self.has_contact_flags = torch.cat(has_contact_flags_list, dim=0)
 
   @classmethod
   def _iter_motion_entries(
@@ -1000,6 +1134,8 @@ class MotionLibrary:
     body_quat1 = self.body_quat_w[frame_idx1]
     body_lin_vel = self.body_lin_vel_w[frame_idx0]
     body_ang_vel = self.body_ang_vel_w[frame_idx0]
+    contact_flags = self.contact_flags[frame_idx0]
+    has_contact_flags = self.has_contact_flags[frame_idx0]
 
     blend_joint = blend.unsqueeze(-1)
     blend_body = blend.unsqueeze(-1).unsqueeze(-1)
@@ -1030,4 +1166,6 @@ class MotionLibrary:
       anchor_quat_w=body_quat_w[:, anchor_body_index],
       anchor_lin_vel_w=body_lin_vel[:, anchor_body_index],
       anchor_ang_vel_w=body_ang_vel[:, anchor_body_index],
+      contact_flags=contact_flags,
+      has_contact_flags=has_contact_flags,
     )

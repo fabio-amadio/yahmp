@@ -304,6 +304,25 @@ def _current_observation(
     )
 
 
+def _proprio_observation(env: ManagerBasedRlEnv) -> torch.Tensor:
+    """Return YAHMP's proprio-only block (no motion reference).
+
+    Layout: [base_ang_vel, projected_gravity, joint_pos_rel, joint_vel_rel,
+    last_action]. Used as the per-step content of the actor/critic history
+    so the history encoder is conditioned on robot state only.
+    """
+    return torch.cat(
+        (
+            builtin_mdp.builtin_sensor(env, sensor_name="robot/imu_ang_vel"),
+            builtin_mdp.projected_gravity(env),
+            builtin_mdp.joint_pos_rel(env),
+            builtin_mdp.joint_vel_rel(env),
+            builtin_mdp.last_action(env),
+        ),
+        dim=-1,
+    )
+
+
 def _current_observation_with_privileged(
     env: ManagerBasedRlEnv,
     command_name: str,
@@ -312,6 +331,28 @@ def _current_observation_with_privileged(
     return torch.cat(
         (
             _current_observation(env, command_name),
+            builtin_mdp.builtin_sensor(env, sensor_name="robot/imu_lin_vel"),
+            motion_anchor_pos_b(env, command_name),
+            motion_anchor_ori_b(env, command_name),
+            robot_body_pos_b(env, command_name),
+            robot_body_ori_b(env, command_name),
+            feet_contact_mask(env, sensor_name="feet_ground_contact"),
+            motion_friction_coeff(
+                env, asset_cfg=SceneEntityCfg("robot", geom_names=())
+            ),
+        ),
+        dim=-1,
+    )
+
+
+def _proprio_observation_with_privileged(
+    env: ManagerBasedRlEnv,
+    command_name: str,
+) -> torch.Tensor:
+    """Proprio block augmented with privileged observations (no motion ref)."""
+    return torch.cat(
+        (
+            _proprio_observation(env),
             builtin_mdp.builtin_sensor(env, sensor_name="robot/imu_lin_vel"),
             motion_anchor_pos_b(env, command_name),
             motion_anchor_ori_b(env, command_name),
@@ -446,9 +487,10 @@ class YahmpLocomotionObservationHistory:
 class YahmpObservationHistory:
     """Time-major history buffer for YAHMP actor observations.
 
-    The buffer stores the deployment-ready current block
-    ``[first_step_motion_command, proprio]`` and returns the previous
-    ``history_length`` entries flattened as ``[t-H, ..., t-1]``.
+    The buffer stores a proprio-only per-step block (optionally augmented
+    with privileged observations) and returns the previous ``history_length``
+    entries flattened as ``[t-H, ..., t-1]``. The motion reference is *not*
+    stacked in history: the actor/critic still receive it as the current obs.
     """
 
     def __init__(self, cfg, env: ManagerBasedRlEnv):
@@ -481,9 +523,9 @@ class YahmpObservationHistory:
         del include_privileged  # Config-time validation keeps this fixed.
         active_command_name = command_name or self.command_name
         if self.include_privileged:
-            current = _current_observation_with_privileged(env, active_command_name)
+            current = _proprio_observation_with_privileged(env, active_command_name)
         else:
-            current = _current_observation(env, active_command_name)
+            current = _proprio_observation(env)
 
         if self._history is None:
             self._history = current[:, None, :].repeat(1, self.history_length, 1)

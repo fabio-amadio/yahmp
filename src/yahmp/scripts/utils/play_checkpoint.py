@@ -10,7 +10,7 @@ from typing import Literal
 import mjlab
 import tyro
 from mjlab.scripts.play import PlayConfig, run_play
-from mjlab.tasks.registry import list_tasks, load_rl_cfg
+from mjlab.tasks.registry import _REGISTRY, list_tasks, load_rl_cfg
 
 from yahmp.utils import get_wandb_checkpoint_path
 
@@ -32,6 +32,9 @@ class Config:
   camera: int | str | None = None
   viewer: Literal["auto", "native", "viser"] = "auto"
   no_terminations: bool = False
+  imitation_checkpoint_file: str | None = None
+  imitation_wandb_run_path: str | None = None
+  imitation_wandb_checkpoint_name: str | None = None
 
 
 def main() -> None:
@@ -81,6 +84,21 @@ def main() -> None:
       )
   else:
     checkpoint_path = None
+
+  for field_name in (
+    "imitation_checkpoint_file",
+    "imitation_wandb_run_path",
+    "imitation_wandb_checkpoint_name",
+  ):
+    value = getattr(cfg, field_name)
+    if value is None:
+      continue
+    registered_cfg = _REGISTRY[chosen_task].rl_cfg
+    if not hasattr(registered_cfg, field_name):
+      raise ValueError(
+        f"Task {chosen_task} runner cfg does not accept `{field_name}`."
+      )
+    setattr(registered_cfg, field_name, value)
 
   play_cfg = PlayConfig(
     agent=cfg.agent,

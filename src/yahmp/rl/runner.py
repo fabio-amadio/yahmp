@@ -158,7 +158,8 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
         command_dim = flat_term_dims["command"]
         history_dim = flat_term_dims["history"]
         current_dim = int(obs_dims[actor_group][0]) - command_dim - history_dim
-      history_step_dim = command_dim + current_dim
+      # History stacks proprio-only per step; step dim is just proprio.
+      history_step_dim = current_dim
       if history_dim % history_step_dim != 0:
         raise ValueError(
           "YahmpEncoderDecoderActorModel history dimension mismatch: "
@@ -271,7 +272,8 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
       privileged_dim = (
         int(obs_dims[critic_group][0]) - command_dim - proprio_dim - history_dim
       )
-      history_step_dim = command_dim + proprio_dim
+      # History stacks proprio-only per step; step dim is just proprio.
+      history_step_dim = proprio_dim
       if history_dim % history_step_dim != 0:
         raise ValueError(
           "YahmpEncoderDecoderCriticModel history dimension mismatch: "

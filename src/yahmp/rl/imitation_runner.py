@@ -213,7 +213,9 @@ class YahmpImitationRunner:
                 stats["expert/episode_length_max"] = float(lens.max().item())
                 stats["expert/num_episodes"] = float(lens.numel())
             else:
-                stats["expert/episode_length_mean"] = float(cur_ep_len.float().mean().item())
+                stats["expert/episode_length_mean"] = float(
+                    cur_ep_len.float().mean().item()
+                )
                 stats["expert/episode_length_max"] = float(cur_ep_len.max().item())
                 stats["expert/num_episodes"] = 0.0
 
@@ -236,9 +238,7 @@ class YahmpImitationRunner:
                 self.save(os.path.join(self.log_dir, f"model_{it}.pt"))
 
         if self.log_dir:
-            self.save(
-                os.path.join(self.log_dir, f"model_{self.current_iteration}.pt")
-            )
+            self.save(os.path.join(self.log_dir, f"model_{self.current_iteration}.pt"))
 
     def save(self, path: str) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -251,6 +251,7 @@ class YahmpImitationRunner:
         )
         if self._use_wandb and self._wandb_initialized:
             import wandb
+
             wandb.save(path, base_path=str(Path(path).parent), policy="now")
 
     def load(self, path: str, strict: bool = True, **kwargs: Any) -> None:
@@ -299,7 +300,7 @@ class YahmpImitationRunner:
         command_dim = flat_term_dims["command"]
         history_dim = flat_term_dims["history"]
         current_dim = int(obs_dims[actor_group][0]) - command_dim - history_dim
-        history_step_dim = command_dim + current_dim
+        history_step_dim = current_dim
         if history_dim % history_step_dim != 0:
             raise ValueError(
                 "YahmpImitationRunner history dimension mismatch: "

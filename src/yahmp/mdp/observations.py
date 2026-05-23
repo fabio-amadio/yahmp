@@ -367,9 +367,7 @@ def _proprio_observation_with_privileged(
     )
 
 
-def velocity_command(
-    env: ManagerBasedRlEnv, command_name: str
-) -> torch.Tensor:
+def velocity_command(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     """Return the body-frame velocity command ``(vx, vy, ω_z)``."""
     command = env.command_manager.get_command(command_name)
     assert command is not None, f"Command '{command_name}' not found."
@@ -378,7 +376,6 @@ def velocity_command(
 
 def _locomotion_current_observation(
     env: ManagerBasedRlEnv,
-    command_name: str,
 ) -> torch.Tensor:
     """Locomotion deployment-ready current block.
 
@@ -387,7 +384,6 @@ def _locomotion_current_observation(
     """
     return torch.cat(
         (
-            velocity_command(env, command_name=command_name),
             builtin_mdp.builtin_sensor(env, sensor_name="robot/imu_ang_vel"),
             builtin_mdp.projected_gravity(env),
             builtin_mdp.joint_pos_rel(env),
@@ -400,7 +396,6 @@ def _locomotion_current_observation(
 
 def _locomotion_current_observation_with_privileged(
     env: ManagerBasedRlEnv,
-    command_name: str,
 ) -> torch.Tensor:
     """Locomotion current block augmented with privileged observations.
 
@@ -408,7 +403,7 @@ def _locomotion_current_observation_with_privileged(
     """
     return torch.cat(
         (
-            _locomotion_current_observation(env, command_name),
+            _locomotion_current_observation(env),
             builtin_mdp.builtin_sensor(env, sensor_name="robot/imu_lin_vel"),
             feet_contact_mask(env, sensor_name="feet_ground_contact"),
             motion_friction_coeff(
@@ -422,7 +417,7 @@ def _locomotion_current_observation_with_privileged(
 class YahmpLocomotionObservationHistory:
     """Time-major history buffer for the YAHMP locomotion task.
 
-    Stores ``[velocity_command, proprio]`` per step and returns the previous
+    Stores ``[proprio]`` per step and returns the previous
     ``history_length`` entries flattened as ``[t-H, ..., t-1]``.
     """
 
@@ -454,15 +449,13 @@ class YahmpLocomotionObservationHistory:
         history_length: int | None = None,
         include_privileged: bool | None = None,
     ) -> torch.Tensor:
+        del command_name
         del history_length
         del include_privileged
-        active_command_name = command_name or self.command_name
         if self.include_privileged:
-            current = _locomotion_current_observation_with_privileged(
-                env, active_command_name
-            )
+            current = _locomotion_current_observation_with_privileged(env)
         else:
-            current = _locomotion_current_observation(env, active_command_name)
+            current = _locomotion_current_observation(env)
 
         if self._history is None:
             self._history = current[:, None, :].repeat(1, self.history_length, 1)

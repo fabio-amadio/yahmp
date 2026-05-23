@@ -22,6 +22,7 @@ class _PriorNet(nn.Module):
         hidden_dims: tuple[int, ...] | list[int],
         activation: str,
         layer_norm: bool,
+        distribution_cfg=None,
     ) -> None:
         super().__init__()
         self.net = _build_mlp(
@@ -119,6 +120,7 @@ class YahmpImitationModel(MLPModel):
         current_motion_obs_dim: int = 0,
         proprio_obs_dim: int = 0,
         history_steps: int = 10,
+        distribution_cfg: dict | None = None,
         history_latent_dim: int = 128,
         history_conv_channels: tuple[int, ...] | list[int] = (64, 32),
         history_conv_kernel_sizes: tuple[int, ...] | list[int] = (4, 2),

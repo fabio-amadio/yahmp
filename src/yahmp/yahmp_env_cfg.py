@@ -313,12 +313,12 @@ def _rewards() -> dict[str, RewardTermCfg]:
     ),
     "motion_body_lin_vel": RewardTermCfg(
       func=tracking_mdp.motion_global_body_linear_velocity_error_exp,
-      weight=0.5,
+      weight=1.0,
       params={"command_name": "motion", "std": 1.0},
     ),
     "motion_body_ang_vel": RewardTermCfg(
       func=tracking_mdp.motion_global_body_angular_velocity_error_exp,
-      weight=0.5,
+      weight=1.0,
       params={"command_name": "motion", "std": 3.14},
     ),
     "motion_joint_pos": RewardTermCfg(
@@ -328,7 +328,7 @@ def _rewards() -> dict[str, RewardTermCfg]:
     ),
     "motion_joint_vel": RewardTermCfg(
       func=mdp.motion_joint_velocity_error_exp,
-      weight=0.05,
+      weight=0.25,
       params={"command_name": "motion", "std": 2.0},
     ),
     "motion_feet_contact_schedule": RewardTermCfg(
@@ -368,7 +368,7 @@ def _rewards() -> dict[str, RewardTermCfg]:
     "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-1e-1),
     "joint_limit": RewardTermCfg(
       func=mdp.joint_pos_limits,
-      weight=-15.0,
+      weight=-10.0,
       params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
     ),
     # Keep this commented out while using the no-self-collision G1 preset.

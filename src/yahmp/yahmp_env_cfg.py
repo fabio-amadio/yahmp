@@ -293,12 +293,12 @@ def _rewards() -> dict[str, RewardTermCfg]:
   return {
     "motion_global_root_pos": RewardTermCfg(
       func=tracking_mdp.motion_global_anchor_position_error_exp,
-      weight=1.0,
+      weight=0.5,
       params={"command_name": "motion", "std": 0.3},
     ),
     "motion_global_root_ori": RewardTermCfg(
       func=tracking_mdp.motion_global_anchor_orientation_error_exp,
-      weight=1.0,
+      weight=0.5,
       params={"command_name": "motion", "std": 0.4},
     ),
     "motion_body_pos": RewardTermCfg(
@@ -333,7 +333,7 @@ def _rewards() -> dict[str, RewardTermCfg]:
     ),
     "motion_feet_contact_schedule": RewardTermCfg(
       func=mdp.motion_feet_contact_schedule,
-      weight=0.5,
+      weight=1.5,
       params={
         "command_name": "motion",
         "sensor_name": "feet_ground_contact",

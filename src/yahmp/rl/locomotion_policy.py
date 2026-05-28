@@ -1,14 +1,14 @@
 """Hierarchical actor for the YAHMP omnidirectional locomotion task.
 
-The actor reuses the imitation pipeline (prior + Residual VQ + action decoder)
-as a frozen low-level controller and trains a new high-level encoder that maps
-``(state, velocity_command) -> latent z`` on top of it.
+The actor reuses the imitation pipeline (history encoder + prior + Residual VQ
++ action decoder) as a frozen low-level controller and trains a new high-level
+encoder that maps ``(state, velocity_command) -> latent z`` on top of it.
 
 Forward pipeline:
 
     1. obs_normalizer(obs) -> obs_flat
     2. split obs_flat into ``[g_task | proprio | history_obs]``
-    3. history_encoder(history_obs) -> history_latent          [TRAINABLE]
+    3. history_encoder(history_obs) -> history_latent          [FROZEN]
     4. s_rich = cat(proprio, history_latent)
     5. z = high_level(cat(s_rich, g_task))                     [TRAINABLE]
     6. zp = prior(s_rich).detach()                             [FROZEN]
@@ -17,9 +17,9 @@ Forward pipeline:
     9. a_mean = action_decoder(s_rich, z_hat)                  [FROZEN]
 
 PPO samples actions ``a ~ N(a_mean, σ)`` with a learnable diagonal std.
-Gradients flow back through the frozen modules to update the high-level net,
-history_encoder and the action std parameter; the frozen submodules'
-weights themselves do not move (``requires_grad=False`` + permanent eval mode).
+Gradients flow back through the frozen modules to update the high-level net and
+the action std parameter; the frozen submodules' weights themselves do not move
+(``requires_grad=False`` + permanent eval mode).
 """
 
 from __future__ import annotations
@@ -166,14 +166,19 @@ class YahmpLocomotionActorModel(MLPModel):
         )
         self.rvq = ResidualVQ(rvq_cfg)
 
-        # ``prior`` and ``action_decoder`` are pure-MLP modules: freeze with
-        # ``eval()`` + ``requires_grad=False``.
+        # ``history_encoder``, ``prior`` and ``action_decoder`` are deterministic
+        # imitation-backbone modules: freeze with ``eval()`` +
+        # ``requires_grad=False``.
         # ``rvq`` is special — the underlying VectorQuantize layers only apply
         # the Straight-Through Estimator when ``self.training=True``, so the
         # module must stay in train mode to let gradients reach ``high_level``.
         # Codebook EMA updates are suppressed by setting ``freeze_codebook=True``
         # on each layer (see ``_freeze_rvq``).
-        self._frozen_eval_submodules: tuple[str, ...] = ("prior", "action_decoder")
+        self._frozen_eval_submodules: tuple[str, ...] = (
+            "history_encoder",
+            "prior",
+            "action_decoder",
+        )
 
     def _get_latent_dim(self) -> int:
         # Not used: `self.mlp` is overwritten with `nn.Identity()` after init.
@@ -222,12 +227,12 @@ class YahmpLocomotionActorModel(MLPModel):
         strict: bool = True,
         copy_normalizer_proprio_history: bool = True,
     ) -> None:
-        """Load frozen submodules (prior, rvq, action_decoder) from an imitation
-        checkpoint and freeze their parameters.
+        """Load imitation submodules and freeze the low-level action backbone.
 
-        Optionally copies the proprio + history slots of the imitation model's
-        ``obs_normalizer`` running statistics into this model's normalizer.
-        The task-goal slot keeps fresh (zero/one) statistics.
+        ``history_encoder`` is copied and frozen because the default-offset
+        imitation and locomotion tasks share the same proprio-only history
+        semantics. ``prior``, ``rvq`` and ``action_decoder`` are also copied and
+        frozen.
 
         Args:
           imitation_state_dict: state_dict of a trained ``YahmpImitationModel``.
@@ -252,14 +257,14 @@ class YahmpLocomotionActorModel(MLPModel):
                 return
             module.load_state_dict(sd, strict=strict)
 
-        for name in ("prior", "rvq", "action_decoder"):
+        for name in ("history_encoder", "prior", "rvq", "action_decoder"):
             _load(name)
 
         if missing:
             raise KeyError(
                 "YahmpLocomotionActorModel: missing submodules in imitation "
                 f"checkpoint: {missing}. Expected keys with prefixes "
-                "'prior.', 'rvq.', 'action_decoder.'."
+                "'history_encoder.', 'prior.', 'rvq.', 'action_decoder.'."
             )
 
         self._freeze_frozen_submodules()
@@ -295,13 +300,12 @@ class YahmpLocomotionActorModel(MLPModel):
     def _copy_normalizer_proprio_history(
         self, imitation_state_dict: dict[str, torch.Tensor]
     ) -> None:
-        """Copy the proprio slot of the imitation normalizer into this one.
+        """Copy proprio and history normalizer slots from imitation.
 
         Imitation current-obs layout was ``[motion_ref | proprio]``; locomotion
-        is ``[g_task | proprio]``. The per-step ``proprio`` block is the only
-        section with identical semantics across the two pipelines, so only that
-        slot is transferred. History slots (different per-step content) and the
-        ``g_task`` slot are left at the (mean=0, var=1) init.
+        is ``[g_task | proprio]``. With default-offset imitation targets, both
+        pipelines use the same proprio block and proprio-only history block; the
+        task-goal slot keeps fresh (mean=0, var=1) statistics.
 
         The imitation ``count`` is also transferred to lock these stats in: PPO
         keeps calling ``obs_normalizer.update()`` each env step, and with
@@ -319,29 +323,30 @@ class YahmpLocomotionActorModel(MLPModel):
             return
 
         # Imitation obs layout: [imit_command | proprio | history(proprio * H)].
-        # Recover the imitation command-block size from the normalizer total length,
-        # since the history conv no longer encodes the motion ref per step.
+        # Locomotion obs layout: [task_goal | proprio | history(proprio * H)].
         imit_total = int(imitation_mean.shape[-1])
-        imit_motion_obs_dim = imit_total - self.proprio_obs_dim * (
-            1 + self.history_steps
-        )
+        tail_dim = self.proprio_obs_dim * (1 + self.history_steps)
+        imit_motion_obs_dim = imit_total - tail_dim
         if imit_motion_obs_dim < 0:
             return
 
-        proprio_lo_imit = imit_motion_obs_dim
-        proprio_hi_imit = imit_motion_obs_dim + self.proprio_obs_dim
-        proprio_lo_loc = self.task_goal_obs_dim
-        proprio_hi_loc = self.task_goal_obs_dim + self.proprio_obs_dim
+        tail_lo_imit = imit_motion_obs_dim
+        tail_hi_imit = imit_motion_obs_dim + tail_dim
+        tail_lo_loc = self.task_goal_obs_dim
+        tail_hi_loc = self.task_goal_obs_dim + tail_dim
+        loc_total = int(self.obs_normalizer._mean.shape[-1])  # type: ignore[attr-defined]
+        if tail_hi_loc > loc_total:
+            return
 
         with torch.no_grad():
-            self.obs_normalizer._mean[:, proprio_lo_loc:proprio_hi_loc] = (  # type: ignore[attr-defined]
-                imitation_mean[:, proprio_lo_imit:proprio_hi_imit]
+            self.obs_normalizer._mean[:, tail_lo_loc:tail_hi_loc] = (  # type: ignore[attr-defined]
+                imitation_mean[:, tail_lo_imit:tail_hi_imit]
             )
-            self.obs_normalizer._var[:, proprio_lo_loc:proprio_hi_loc] = (  # type: ignore[attr-defined]
-                imitation_var[:, proprio_lo_imit:proprio_hi_imit]
+            self.obs_normalizer._var[:, tail_lo_loc:tail_hi_loc] = (  # type: ignore[attr-defined]
+                imitation_var[:, tail_lo_imit:tail_hi_imit]
             )
-            self.obs_normalizer._std[:, proprio_lo_loc:proprio_hi_loc] = (  # type: ignore[attr-defined]
-                imitation_std[:, proprio_lo_imit:proprio_hi_imit]
+            self.obs_normalizer._std[:, tail_lo_loc:tail_hi_loc] = (  # type: ignore[attr-defined]
+                imitation_std[:, tail_lo_imit:tail_hi_imit]
             )
             if imitation_count is not None:
                 self.obs_normalizer.count.copy_(imitation_count)  # type: ignore[attr-defined]

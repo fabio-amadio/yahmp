@@ -31,8 +31,9 @@ class ImitationTrainer:
     """Loss + optimizer wrapper for `YahmpImitationModel`.
 
     The trainer is environment-agnostic: it consumes batches with
-    ``obs`` (a TensorDict) and ``a_expert`` (the action target produced
-    by the frozen expert policy), and runs a single supervised step
+    ``obs`` (a TensorDict) and ``a_expert`` (the supervised action target;
+    it may be converted from the frozen expert action by the runner), and runs
+    a single supervised step
     combining action reconstruction, margin minimization, optional
     temporal regularization, and the RVQ commitment loss.
     """
@@ -72,8 +73,9 @@ class ImitationTrainer:
     def _masked_mse(
         x: torch.Tensor, y: torch.Tensor, mask: torch.Tensor
     ) -> torch.Tensor:
+        # Convention: mask == 1 selects samples to include.
         if mask.dim() == 1:
-            mask = (~mask).unsqueeze(-1)
+            mask = mask.unsqueeze(-1)
         mask_f = mask.to(dtype=x.dtype)
         per = ((x - y) ** 2).mean(dim=-1, keepdim=True)
         denom = mask_f.sum().clamp_min(1.0)
@@ -148,8 +150,6 @@ class ImitationTrainer:
         if self.cfg.mm_warmup_steps > 0:
             t = min(1.0, self.global_step / float(self.cfg.mm_warmup_steps))
             self.loss_weights.mm = (1.0 - t) * self.cfg.mm_start + t * self.cfg.mm_end
-        else:
-            self.loss_weights.mm = self.cfg.mm_end
 
         losses = self.compute_imitation_losses(
             out=out,

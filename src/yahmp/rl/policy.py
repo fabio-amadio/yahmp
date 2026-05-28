@@ -434,7 +434,7 @@ class YahmpCriticModel(MLPModel):
       raise ValueError(f"`history_steps` must be positive, got {self.history_steps}.")
 
     self.current_obs_dim = self.current_motion_obs_dim + self.proprio_obs_dim
-    self.history_obs_dim = self.current_obs_dim * self.history_steps
+    self.history_obs_dim = self.proprio_obs_dim * self.history_steps
 
     super().__init__(
       obs=obs,
@@ -459,7 +459,7 @@ class YahmpCriticModel(MLPModel):
       )
 
     self.history_encoder = MotionEncoder(
-      input_dim_per_step=self.current_obs_dim,
+      input_dim_per_step=self.proprio_obs_dim,
       num_steps=self.history_steps,
       activation=activation,
       conv_channels=history_conv_channels,

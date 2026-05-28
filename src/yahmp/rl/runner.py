@@ -455,9 +455,8 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
 
         The locomotion env exposes a `twist` velocity command instead of a
         motion command, so the existing motion-based auto-config branches do
-        not apply. Layout used here matches that of the imitation pipeline:
-        ``[g_task | proprio | history]`` with one history step equal to
-        ``g_task + proprio``.
+        not apply. Layout used here mirrors the default-offset imitation
+        pipeline: ``[g_task | proprio | history]`` with proprio-only history.
         """
         actor_class = str(actor_cfg.get("class_name", ""))
         critic_class = str(critic_cfg.get("class_name", ""))
@@ -718,6 +717,14 @@ class YahmpLocomotionOnPolicyRunner(YahmpOnPolicyRunner):
         loaded = torch.load(
             checkpoint_path, map_location=self.device, weights_only=False
         )
+        checkpoint_mode = loaded.get("action_target_mode")
+        if checkpoint_mode != "default_offset":
+            raise ValueError(
+                "Locomotion requires an imitation checkpoint trained with "
+                "`action_target_mode='default_offset'` and current checkpoint "
+                f"metadata reports {checkpoint_mode!r}. Retrain imitation with "
+                "the current default-offset runner before launching locomotion."
+            )
         imitation_sd = self._extract_imitation_state_dict(loaded)
         actor.load_imitation_weights(
             imitation_sd,

@@ -9,6 +9,7 @@ import torch
 from mjlab.rl import RslRlVecEnvWrapper
 from rsl_rl.utils import resolve_callable
 
+from yahmp.mdp.actions import ResidualJointPositionAction
 from yahmp.mdp.motion.base import MotionCommand
 
 
@@ -28,6 +29,8 @@ class YahmpImitationRunner:
       - ``expert``: dict with ``class_name`` plus model kwargs for the expert.
       - ``student``: dict with ``class_name`` plus model kwargs for the student.
       - ``expert_checkpoint``: path to the trained encoder-decoder checkpoint.
+      - ``action_target_mode``: ``expert_residual`` for legacy residual targets,
+        or ``default_offset`` to train the student in locomotion action space.
       - ``loss_weights``: kwargs for `ImitationLossWeights`.
       - ``trainer``: kwargs for `ImitationTrainerCfg`.
       - ``num_steps_per_env``: rollout length per iteration.
@@ -122,6 +125,18 @@ class YahmpImitationRunner:
             train_cfg.get("logger", "wandb") == "wandb" and log_dir is not None
         )
 
+        self.action_target_mode = str(
+            train_cfg.get("action_target_mode", "default_offset")
+        )
+        self._motion_command: MotionCommand | None = None
+        self._joint_action_term: Any | None = None
+        self._actor_action_slice: slice | None = None
+        self._actor_history_slice: slice | None = None
+        self._history_action_slice: slice | None = None
+        self._history_steps: int = 0
+        self._history_step_dim: int = 0
+        self._configure_action_target_conversion()
+
     def _load_expert(self, ckpt_path: str | os.PathLike) -> None:
         print(f"[YahmpImitationRunner] Loading expert checkpoint: {ckpt_path}")
         ckpt = torch.load(str(ckpt_path), map_location=self.device, weights_only=False)
@@ -140,6 +155,185 @@ class YahmpImitationRunner:
     def _expert_action(self, obs) -> torch.Tensor:
         """Deterministic mean action from the expert."""
         return self.expert(obs)
+
+    def _configure_action_target_conversion(self) -> None:
+        valid_modes = {"expert_residual", "default_offset"}
+        if self.action_target_mode not in valid_modes:
+            raise ValueError(
+                f"Unsupported action_target_mode={self.action_target_mode!r}. "
+                f"Expected one of {sorted(valid_modes)}."
+            )
+        if self.action_target_mode == "expert_residual":
+            print("[YahmpImitationRunner] Using legacy expert-residual targets.")
+            return
+
+        motion_term = self.env.unwrapped.command_manager.get_term("motion")
+        if not isinstance(motion_term, MotionCommand):
+            raise TypeError(
+                "default_offset imitation targets require a MotionCommand named "
+                f"'motion', got {type(motion_term)}."
+            )
+
+        action_term = self.env.unwrapped.action_manager.get_term("joint_pos")
+        for attr in ("target_ids", "scale"):
+            if not hasattr(action_term, attr):
+                raise TypeError(
+                    "default_offset imitation targets require a joint-position "
+                    f"action term exposing `{attr}`; got {type(action_term)}."
+                )
+
+        self._motion_command = motion_term
+        self._joint_action_term = action_term
+        self._configure_default_offset_observation_rewrite()
+        print(
+            "[YahmpImitationRunner] Using default-offset imitation targets "
+            "compatible with locomotion actions."
+        )
+
+    def _configure_default_offset_observation_rewrite(self) -> None:
+        observation_manager = self.env.unwrapped.observation_manager
+        actor_group = "actor"
+        actor_terms = observation_manager.active_terms[actor_group]
+        actor_term_dims = observation_manager._group_obs_term_dim[actor_group]
+        flat_term_dims = {
+            name: int(math.prod(dims))
+            for name, dims in zip(actor_terms, actor_term_dims, strict=False)
+        }
+
+        if "actions" not in flat_term_dims or "history" not in flat_term_dims:
+            raise ValueError(
+                "default_offset imitation targets require actor observations "
+                "with `actions` and `history` terms so last_action semantics can "
+                "be rewritten."
+            )
+
+        offset = 0
+        term_slices: dict[str, slice] = {}
+        for name in actor_terms:
+            dim = flat_term_dims[name]
+            term_slices[name] = slice(offset, offset + dim)
+            offset += dim
+
+        action_dim = int(self.env.num_actions)
+        history_dim = flat_term_dims["history"]
+        current_dim = offset - flat_term_dims["command"] - history_dim
+        current_start = term_slices["command"].stop
+        if history_dim % current_dim != 0:
+            raise ValueError(
+                "default_offset observation rewrite history dimension mismatch: "
+                f"history_dim={history_dim}, current_dim={current_dim}."
+            )
+        action_slice = term_slices["actions"]
+        if action_slice.stop - action_slice.start != action_dim:
+            raise ValueError(
+                "default_offset observation rewrite action dimension mismatch: "
+                f"obs_actions={action_slice.stop - action_slice.start}, "
+                f"env_actions={action_dim}."
+            )
+        if action_slice.start < current_start or action_slice.stop > term_slices["history"].start:
+            raise ValueError(
+                "default_offset observation rewrite expects `actions` inside the "
+                "current proprio block between `command` and `history`."
+            )
+
+        self._actor_action_slice = action_slice
+        self._actor_history_slice = term_slices["history"]
+        self._history_steps = max(history_dim // current_dim, 1)
+        self._history_step_dim = current_dim
+        self._history_action_slice = slice(
+            action_slice.start - current_start,
+            action_slice.stop - current_start,
+        )
+
+    def _assert_learn_env_supports_expert_rollout(self) -> None:
+        if self.action_target_mode != "default_offset":
+            return
+        if isinstance(self._joint_action_term, ResidualJointPositionAction):
+            return
+        raise RuntimeError(
+            "default_offset imitation training must roll out the expert in a "
+            "residual-action env, then convert the supervised target. Do not train "
+            "the `NoRes` imitation task; use it only for play/evaluation."
+        )
+
+    @staticmethod
+    def _action_affine_tensor(value: Any, like: torch.Tensor) -> torch.Tensor:
+        if torch.is_tensor(value):
+            return value.to(device=like.device, dtype=like.dtype)
+        return torch.as_tensor(value, device=like.device, dtype=like.dtype)
+
+    @torch.no_grad()
+    def _imitation_action_target(self, expert_action: torch.Tensor) -> torch.Tensor:
+        """Return the supervised student target for the current expert action."""
+        if self.action_target_mode == "expert_residual":
+            return expert_action
+
+        assert self._motion_command is not None
+        assert self._joint_action_term is not None
+
+        target_ids = self._joint_action_term.target_ids
+        q_ref = self._motion_command.joint_pos[:, target_ids].to(
+            device=expert_action.device, dtype=expert_action.dtype
+        )
+        q_home = self._joint_action_term._entity.data.default_joint_pos[
+            :, target_ids
+        ].to(device=expert_action.device, dtype=expert_action.dtype)
+
+        scale = self._action_affine_tensor(self._joint_action_term.scale, expert_action)
+        offset = self._action_affine_tensor(
+            getattr(self._joint_action_term, "offset", 0.0), expert_action
+        )
+        eps = torch.finfo(expert_action.dtype).eps
+        if torch.any(torch.abs(scale) <= eps):
+            raise ValueError("Cannot convert imitation targets with zero action scale.")
+
+        expert_delta_q = expert_action * scale + offset
+        expert_target_q = q_ref + expert_delta_q
+        return (expert_target_q - q_home) / scale
+
+    def _student_observation(
+        self,
+        obs,
+        last_default_action: torch.Tensor,
+        default_action_history: torch.Tensor,
+    ):
+        """Return obs with last_action slots rewritten to student action semantics."""
+        if self.action_target_mode == "expert_residual":
+            return obs
+
+        assert self._actor_action_slice is not None
+        assert self._actor_history_slice is not None
+        assert self._history_action_slice is not None
+
+        student_obs = obs.clone()
+        actor_obs = student_obs["actor"].clone()
+        last_default_action = last_default_action.to(
+            device=actor_obs.device, dtype=actor_obs.dtype
+        )
+        default_action_history = default_action_history.to(
+            device=actor_obs.device, dtype=actor_obs.dtype
+        )
+
+        actor_obs[:, self._actor_action_slice] = last_default_action
+        history = actor_obs[:, self._actor_history_slice].reshape(
+            actor_obs.shape[0], self._history_steps, self._history_step_dim
+        )
+        history[:, :, self._history_action_slice] = default_action_history
+        actor_obs[:, self._actor_history_slice] = history.reshape(
+            actor_obs.shape[0], -1
+        )
+        student_obs["actor"] = actor_obs
+        return student_obs
+
+    def _update_default_action_history(
+        self,
+        default_action_history: torch.Tensor,
+        last_default_action: torch.Tensor,
+    ) -> None:
+        if self.action_target_mode == "expert_residual":
+            return
+        default_action_history[:, :-1] = default_action_history[:, 1:].clone()
+        default_action_history[:, -1] = last_default_action
 
     def add_git_repo_to_log(self, *args, **kwargs) -> None:
         pass
@@ -165,6 +359,7 @@ class YahmpImitationRunner:
 
     def learn(self, num_learning_iterations: int, **kwargs: Any) -> None:
         del kwargs  # absorb `init_at_random_ep_len` etc.
+        self._assert_learn_env_supports_expert_rollout()
         self._maybe_init_wandb()
         obs = self.env.get_observations()
         if isinstance(obs, tuple):
@@ -173,6 +368,15 @@ class YahmpImitationRunner:
 
         num_envs = int(self.env.num_envs)
         cur_ep_len = torch.zeros(num_envs, device=self.device, dtype=torch.long)
+        last_default_action = torch.zeros(
+            num_envs, int(self.env.num_actions), device=self.device
+        )
+        default_action_history = torch.zeros(
+            num_envs,
+            max(self._history_steps, 1),
+            int(self.env.num_actions),
+            device=self.device,
+        )
 
         target_iteration = self.current_iteration + int(num_learning_iterations)
         while self.current_iteration < target_iteration:
@@ -183,29 +387,44 @@ class YahmpImitationRunner:
 
             with torch.inference_mode():
                 for _ in range(self.num_steps_per_env):
+                    student_obs = self._student_observation(
+                        obs, last_default_action, default_action_history
+                    )
+                    self._update_default_action_history(
+                        default_action_history, last_default_action
+                    )
                     action = self._expert_action(obs)
-                    rollout_obs.append(obs.clone())
-                    rollout_actions.append(action.clone())
+                    action_target = self._imitation_action_target(action)
+                    rollout_obs.append(student_obs.clone())
+                    rollout_actions.append(action_target.clone())
                     obs, _, dones, _ = self.env.step(action.to(self.env.device))
                     dones = dones.to(self.device)
                     rollout_dones.append(dones.clone())
                     cur_ep_len += 1
+                    last_default_action = action_target.detach().clone()
                     done_mask = dones.bool()
                     if done_mask.any():
                         ended_lengths.append(cur_ep_len[done_mask].clone())
                         cur_ep_len[done_mask] = 0
+                        last_default_action[done_mask] = 0.0
+                        default_action_history[done_mask] = 0.0
                     obs = obs.to(self.device)
 
             stats: dict[str, float] = {}
-            for i, (step_obs, step_action) in enumerate(
+            for i, (step_obs, step_action_target) in enumerate(
                 zip(rollout_obs, rollout_actions, strict=True)
             ):
                 step_obs = step_obs.clone()
-                step_action = step_action.clone()
-                batch: dict = {"obs": step_obs, "a_expert": step_action}
+                step_action_target = step_action_target.clone()
+                batch: dict = {"obs": step_obs, "a_expert": step_action_target}
                 if i > 0:
                     batch["valid_prev"] = rollout_dones[i - 1]
                 stats = self.trainer.train_step(batch)
+
+            action_targets = torch.stack(rollout_actions)
+            stats["target/raw_mean"] = float(action_targets.mean().item())
+            stats["target/raw_std"] = float(action_targets.std().item())
+            stats["target/raw_abs_max"] = float(action_targets.abs().max().item())
 
             if ended_lengths:
                 lens = torch.cat(ended_lengths).float()
@@ -246,6 +465,7 @@ class YahmpImitationRunner:
             {
                 "trainer": self.trainer.state_dict(),
                 "iteration": self.current_iteration,
+                "action_target_mode": self.action_target_mode,
             },
             path,
         )
@@ -257,6 +477,19 @@ class YahmpImitationRunner:
     def load(self, path: str, strict: bool = True, **kwargs: Any) -> None:
         del kwargs  # absorb mjlab.scripts.play extras like `load_cfg`, `map_location`
         sd = torch.load(path, map_location=self.device, weights_only=False)
+        checkpoint_mode = sd.get("action_target_mode")
+        if checkpoint_mode is None and self.action_target_mode == "default_offset":
+            raise ValueError(
+                "This runner expects a default-offset imitation checkpoint, but "
+                "the checkpoint has no `action_target_mode` metadata. Retrain the "
+                "imitation with the current runner before using the NoRes play task "
+                "or locomotion."
+            )
+        if checkpoint_mode is not None and str(checkpoint_mode) != self.action_target_mode:
+            raise ValueError(
+                "Imitation checkpoint action semantics mismatch: "
+                f"checkpoint={checkpoint_mode!r}, runner={self.action_target_mode!r}."
+            )
         self.trainer.load_state_dict(sd["trainer"], strict=strict)
         self.current_iteration = int(sd.get("iteration", 0))
 

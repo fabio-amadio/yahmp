@@ -55,7 +55,7 @@ def _velocity_command_kwargs() -> dict[str, object]:
         "ranges": UniformVelocityCommandCfg.Ranges(
             lin_vel_x=(-1.0, 1.5),
             lin_vel_y=(-0.5, 0.5),
-            ang_vel_z=(-1.0, 1.0),
+            ang_vel_z=(0.0, 0.0),
         ),
     }
 
@@ -207,11 +207,13 @@ def _events() -> dict[str, EventTermCfg]:
 
 
 def _rewards() -> dict[str, RewardTermCfg]:
-    """Velocity tracking + smoothness + foot terms.
+    """Minimal task reward: velocity tracking only.
 
-    Adapted from ``mjlab.tasks.velocity.mdp.rewards``. Slip/clearance terms
-    reference feet sites by name — the geom/site names are filled in by the
-    G1 overrides in ``config/g1/env_cfgs.py``.
+    The hierarchical policy reuses a frozen action_decoder + RVQ codebook
+    trained on expert demos, so motion naturalness (smoothness, foot
+    clearance, slip-free contacts, upright posture) is already encoded in
+    the decoder. Shaping those properties from the reward would fight the
+    pretrained manifold. Falling is handled by the `fell_over` termination.
     """
     return {
         "track_linear_velocity": RewardTermCfg(
@@ -223,60 +225,6 @@ def _rewards() -> dict[str, RewardTermCfg]:
             func=vel_mdp.track_angular_velocity,
             weight=2.0,
             params={"command_name": TWIST_COMMAND_NAME, "std": math.sqrt(0.5)},
-        ),
-        "upright": RewardTermCfg(
-            func=vel_mdp.flat_orientation,
-            weight=1.0,
-            params={
-                "std": math.sqrt(0.2),
-                "asset_cfg": SceneEntityCfg("robot", body_names=()),
-            },
-        ),
-        "dof_pos_limits": RewardTermCfg(
-            func=mdp.joint_pos_limits,
-            weight=-10.0,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
-        ),
-        "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.1),
-        "air_time": RewardTermCfg(
-            func=vel_mdp.feet_air_time,
-            weight=1.0,
-            params={
-                "sensor_name": "feet_ground_contact",
-                "threshold_min": 0.05,
-                "threshold_max": 0.5,
-                "command_name": TWIST_COMMAND_NAME,
-                "command_threshold": 0.05,
-            },
-        ),
-        "foot_slip": RewardTermCfg(
-            func=vel_mdp.feet_slip,
-            weight=-0.1,
-            params={
-                "sensor_name": "feet_ground_contact",
-                "command_name": TWIST_COMMAND_NAME,
-                "command_threshold": 0.05,
-                "asset_cfg": SceneEntityCfg("robot", site_names=()),
-            },
-        ),
-        "foot_clearance": RewardTermCfg(
-            func=vel_mdp.feet_clearance,
-            weight=-2.0,
-            params={
-                "target_height": 0.1,
-                "command_name": TWIST_COMMAND_NAME,
-                "command_threshold": 0.05,
-                "asset_cfg": SceneEntityCfg("robot", site_names=()),
-            },
-        ),
-        "soft_landing": RewardTermCfg(
-            func=vel_mdp.soft_landing,
-            weight=-1e-5,
-            params={
-                "sensor_name": "feet_ground_contact",
-                "command_name": TWIST_COMMAND_NAME,
-                "command_threshold": 0.05,
-            },
         ),
     }
 
@@ -303,19 +251,19 @@ def _curriculum() -> dict[str, CurriculumTermCfg]:
                         "step": 0,
                         "lin_vel_x": (-0.5, 1.0),
                         "lin_vel_y": (-0.3, 0.3),
-                        "ang_vel_z": (-0.5, 0.5),
+                        "ang_vel_z": (0.0, 0.0),
                     },
                     {
                         "step": 5000 * 24,
                         "lin_vel_x": (-1.0, 1.5),
                         "lin_vel_y": (-0.5, 0.5),
-                        "ang_vel_z": (-0.8, 0.8),
+                        "ang_vel_z": (0.0, 0.0),
                     },
                     {
                         "step": 10000 * 24,
                         "lin_vel_x": (-1.0, 2.0),
                         "lin_vel_y": (-0.5, 0.5),
-                        "ang_vel_z": (-1.0, 1.0),
+                        "ang_vel_z": (0.0, 0.0),
                     },
                 ],
             },

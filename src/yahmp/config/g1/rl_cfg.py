@@ -316,8 +316,15 @@ def unitree_g1_yahmp_imitation_runner_cfg() -> YahmpImitationRunnerCfg:
             activation="elu",
             obs_normalization=True,
         ),
+        action_target_mode="default_offset",
         loss_weights=ImitationLossWeights(action=1.0, mm=0.1, reg=0.05, vq=1.0),
-        trainer=ImitationTrainerCfg(lr=2e-4, grad_clip_norm=1.0),
+        trainer=ImitationTrainerCfg(
+            lr=2e-4,
+            grad_clip_norm=1.0,
+            mm_warmup_steps=10_000,
+            mm_start=0.0,
+            mm_end=0.1,
+        ),
         experiment_name="g1_yahmp_imitation",
         wandb_project="yahmp",
         wandb_tags=_wandb_tags("yahmp", "imitation", "rvq"),
@@ -326,6 +333,15 @@ def unitree_g1_yahmp_imitation_runner_cfg() -> YahmpImitationRunnerCfg:
         max_iterations=15_000,
         obs_groups={"actor": ("actor",), "critic": ("critic",)},
     )
+
+
+def unitree_g1_yahmp_imitation_residual_runner_cfg() -> YahmpImitationRunnerCfg:
+    cfg = unitree_g1_yahmp_imitation_runner_cfg()
+    cfg.action_target_mode = "expert_residual"
+    cfg.trainer = ImitationTrainerCfg(lr=2e-4, grad_clip_norm=1.0)
+    cfg.experiment_name = "g1_yahmp_imitation_residual"
+    cfg.wandb_tags = _wandb_tags("yahmp", "imitation", "rvq", "residual")
+    return cfg
 
 
 def unitree_g1_yahmp_locomotion_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg:

@@ -689,6 +689,56 @@ class YahmpLocomotionOnPolicyRunner(YahmpOnPolicyRunner):
             "Expected one of: trainer.model, model_state_dict, actor_state_dict."
         )
 
+    def _expert_checkpoint_path(self) -> Path | None:
+        checkpoint_file = self.cfg.get("expert_checkpoint_file")
+        if checkpoint_file:
+            checkpoint_path = Path(str(checkpoint_file)).expanduser().resolve()
+            if not checkpoint_path.exists():
+                raise FileNotFoundError(
+                    f"Expert checkpoint file not found: {checkpoint_path}"
+                )
+            print(f"[INFO]: Using local expert checkpoint: {checkpoint_path}")
+            return checkpoint_path
+
+        wandb_run_path = self.cfg.get("expert_wandb_run_path")
+        if not wandb_run_path:
+            return None
+
+        if self._yahmp_log_dir is None:
+            raise ValueError(
+                "Cannot resolve expert W&B checkpoint without a log directory."
+            )
+        log_root_path = self._yahmp_log_dir.parent
+        checkpoint_path, was_cached = get_wandb_checkpoint_path(
+            log_root_path,
+            Path(str(wandb_run_path)),
+            self.cfg.get("expert_wandb_checkpoint_name"),
+        )
+        run_id = checkpoint_path.parent.name
+        cached_str = "cached" if was_cached else "downloaded"
+        print(
+            "[INFO]: Resolved expert checkpoint: "
+            f"{checkpoint_path.name} (run: {run_id}, {cached_str})"
+        )
+        return checkpoint_path
+
+    @staticmethod
+    def _extract_expert_state_dict(
+        loaded: dict[str, Any],
+    ) -> dict[str, torch.Tensor]:
+        """Pull the actor state-dict out of an EncDec/expert checkpoint."""
+        if "actor_state_dict" in loaded:
+            return loaded["actor_state_dict"]
+        if "model_state_dict" in loaded:
+            return loaded["model_state_dict"]
+        trainer_blob = loaded.get("trainer")
+        if isinstance(trainer_blob, dict) and "model" in trainer_blob:
+            return trainer_blob["model"]
+        raise ValueError(
+            "Expert checkpoint does not contain a recognized model state dict. "
+            "Expected one of: actor_state_dict, model_state_dict, trainer.model."
+        )
+
     def _maybe_load_imitation_checkpoint(self) -> None:
         actor = getattr(self.alg, "actor", None)
         if not isinstance(actor, YahmpLocomotionActorModel):
@@ -698,11 +748,14 @@ class YahmpLocomotionOnPolicyRunner(YahmpOnPolicyRunner):
                     "imitation_checkpoint_file",
                     "imitation_wandb_run_path",
                     "imitation_wandb_checkpoint_name",
+                    "expert_checkpoint_file",
+                    "expert_wandb_run_path",
+                    "expert_wandb_checkpoint_name",
                 )
             ):
                 raise ValueError(
-                    "Imitation checkpoint options are only supported for "
-                    "YahmpLocomotionActorModel runs."
+                    "Imitation/expert checkpoint options are only supported "
+                    "for YahmpLocomotionActorModel runs."
                 )
             return
 
@@ -718,12 +771,24 @@ class YahmpLocomotionOnPolicyRunner(YahmpOnPolicyRunner):
             checkpoint_path, map_location=self.device, weights_only=False
         )
         imitation_sd = self._extract_imitation_state_dict(loaded)
+
+        # Optional: source proprio+history obs-normalizer stats from the
+        # EncDec expert instead of the imitation checkpoint (P2).
+        expert_sd: dict[str, torch.Tensor] | None = None
+        expert_path = self._expert_checkpoint_path()
+        if expert_path is not None:
+            expert_loaded = torch.load(
+                expert_path, map_location=self.device, weights_only=False
+            )
+            expert_sd = self._extract_expert_state_dict(expert_loaded)
+
         actor.load_imitation_weights(
             imitation_sd,
             strict=bool(self.cfg.get("imitation_strict_load", True)),
             copy_normalizer_proprio_history=bool(
                 self.cfg.get("imitation_copy_normalizer_proprio_history", True)
             ),
+            expert_state_dict=expert_sd,
         )
         actor.train(self.alg.actor.training)
 

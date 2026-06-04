@@ -53,6 +53,14 @@ class YahmpLocomotionOnPolicyRunnerCfg(YahmpOnPolicyRunnerCfg):
   imitation_strict_load: bool = True
   imitation_copy_normalizer_proprio_history: bool = True
 
+  # Optional expert checkpoint (EncDec) — when provided, the locomotion actor
+  # sources its proprio/history obs-normalizer stats from the expert instead
+  # of the imitation checkpoint. The g_task slot is kept identity in either
+  # case (see ``YahmpLocomotionActorModel._pin_gtask_normalizer_identity``).
+  expert_checkpoint_file: str | None = None
+  expert_wandb_run_path: str | None = None
+  expert_wandb_checkpoint_name: str | None = None
+
 
 @dataclass
 class YahmpActionMatchingPpoAlgorithmCfg(RslRlPpoAlgorithmCfg):

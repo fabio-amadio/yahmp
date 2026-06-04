@@ -122,6 +122,62 @@ class YahmpImitationRunner:
             train_cfg.get("logger", "wandb") == "wandb" and log_dir is not None
         )
 
+        # Warm-start the student's obs-normalizer from the (frozen) expert so
+        # the student's submodules see normalized obs from the very first step.
+        # Without this the student's normalizer stays at identity throughout
+        # training and the saved checkpoint is unusable for the downstream
+        # locomotion phase.
+        self._warmstart_student_normalizer_from_expert()
+
+    def _warmstart_student_normalizer_from_expert(self) -> None:
+        """Copy the expert's fitted obs-normalizer buffers into the student.
+
+        The expert was trained with PPO updating its normalizer every env step,
+        so its ``EmpiricalNormalization`` holds mature stats (mean/var/std fitted
+        to the env obs distribution, ``count`` ≈ O(10⁹) samples). Seeding the
+        student with these stats means:
+          * Forward passes through ``student.obs_normalizer`` produce
+            normalized obs from iteration 0 — the prior/decoder submodules can
+            learn against a sane input distribution immediately.
+          * Subsequent per-step ``update_normalization`` calls inside the
+            rollout loop barely move the stats (rate ≈ batch_size / count
+            ≈ 10⁻⁶), so the normalizer stays consistent for the whole run.
+        """
+        if not getattr(self.student, "obs_normalization", False):
+            return
+        if not getattr(self.expert, "obs_normalization", False):
+            print(
+                "[YahmpImitationRunner] Expert has no fitted obs_normalizer; "
+                "skipping student warm-start."
+            )
+            return
+
+        expert_norm = getattr(self.expert, "obs_normalizer", None)
+        student_norm = getattr(self.student, "obs_normalizer", None)
+        if expert_norm is None or student_norm is None:
+            return
+        if not hasattr(expert_norm, "_mean") or not hasattr(student_norm, "_mean"):
+            return
+
+        exp_dim = int(expert_norm._mean.shape[-1])
+        stu_dim = int(student_norm._mean.shape[-1])
+        if exp_dim != stu_dim:
+            print(
+                f"[YahmpImitationRunner] Expert/student obs dim mismatch "
+                f"({exp_dim} vs {stu_dim}); skipping student normalizer warm-start."
+            )
+            return
+
+        with torch.no_grad():
+            student_norm._mean.copy_(expert_norm._mean)
+            student_norm._var.copy_(expert_norm._var)
+            student_norm._std.copy_(expert_norm._std)
+            student_norm.count.copy_(expert_norm.count)
+        print(
+            "[YahmpImitationRunner] Warm-started student obs-normalizer from "
+            f"expert (count={int(student_norm.count.item())})."
+        )
+
     def _load_expert(self, ckpt_path: str | os.PathLike) -> None:
         print(f"[YahmpImitationRunner] Loading expert checkpoint: {ckpt_path}")
         ckpt = torch.load(str(ckpt_path), map_location=self.device, weights_only=False)
@@ -195,6 +251,11 @@ class YahmpImitationRunner:
                         ended_lengths.append(cur_ep_len[done_mask].clone())
                         cur_ep_len[done_mask] = 0
                     obs = obs.to(self.device)
+                    # Keep the student's obs-normalizer current with the
+                    # rollout obs distribution. With a warm-started ``count``
+                    # of O(10⁹) the per-step delta is negligible (~10⁻⁶),
+                    # but it prevents stale stats over a multi-day run.
+                    self.student.update_normalization(obs)
 
             stats: dict[str, float] = {}
             for i, (step_obs, step_action) in enumerate(

@@ -2,24 +2,41 @@
 
 The actor reuses the imitation pipeline (history encoder + prior + Residual VQ
 + action decoder) as a frozen low-level controller and trains a new high-level
-encoder that maps ``(state, velocity_command) -> latent z`` on top of it.
+encoder that maps ``(state, velocity_command) -> categorical RVQ-indices`` on
+top of it.
 
-Forward pipeline:
+Forward pipeline (rollout / inference):
 
     1. obs_normalizer(obs) -> obs_flat
+       (g_task slot is permanently pinned to identity — see P1 below)
     2. split obs_flat into ``[g_task | proprio | history_obs]``
-    3. history_encoder(history_obs) -> history_latent          [FROZEN]
+    3. history_encoder(history_obs) -> history_latent        [FROZEN]
     4. s_rich = cat(proprio, history_latent)
-    5. z = high_level(cat(s_rich, g_task))                     [TRAINABLE]
-    6. zp = prior(s_rich).detach()                             [FROZEN]
-    7. y_hat, _ = rvq(z - zp)                                  [FROZEN]
-    8. z_hat = zp + y_hat
-    9. a_mean = action_decoder(s_rich, z_hat)                  [FROZEN]
+    5. logits = high_level(s_rich, g_task)                   [TRAINABLE]
+       logits shape: (B, num_heads * codebook_size) — flat
+    6. Categorical sampling (PPO act): indices (B, num_heads) int64
+       → categorical PPO stores indices in the rollout buffer.
+    7. y_hat = sum_l codebook_l[indices[:, l]]               [FROZEN]
+    8. zp = prior(s_rich)                                    [FROZEN]
+    9. z_hat = zp + y_hat
+   10. a = action_decoder(s_rich, z_hat)                     [FROZEN]
+       continuous joint-position action passed to env.step.
 
-PPO samples actions ``a ~ N(a_mean, σ)`` with a learnable diagonal std.
-Gradients flow back through the frozen modules to update the high-level net and
-the action std parameter; the frozen submodules' weights themselves do not move
-(``requires_grad=False`` + permanent eval mode).
+Design rationale (P1+P2+P3):
+  * **P1** — feed ``g_task`` *raw* (un-normalized) to the high-level: the
+    EmpiricalNormalization for that slot is pinned to identity so the velocity
+    command is preserved in physical units (~ ±1 m/s). This avoids the SNR
+    imbalance between command (~±0.5) and joint_vel (~±15) when both share a
+    fitted normalizer.
+  * **P2** — the proprio + history slots of the locomotion normalizer are
+    *warm-started* from an external checkpoint (expert or imitation). The
+    EmpiricalNormalization ``count`` is also copied so subsequent PPO updates
+    barely move the stats, keeping them consistent with the frozen backbone.
+  * **P3** — the high-level produces a *Multi-Categorical* distribution over
+    the RVQ codebook indices instead of a continuous latent that's then
+    snapped to nearest codes. This decouples PPO gradients from the
+    discrete bottleneck and matches the behaviour of the older
+    g1_hybrid_prior repo where this design was empirically validated.
 """
 
 from __future__ import annotations
@@ -31,13 +48,48 @@ import torch.nn as nn
 from rsl_rl.models import MLPModel
 from tensordict import TensorDict
 
-from yahmp.rl.imitation_RVQ_policy import _ActionDecoder, _PosteriorNet, _PriorNet
-from yahmp.rl.policy import MotionEncoder
+from yahmp.rl.distributions import MultiCategoricalDistribution
+from yahmp.rl.imitation_RVQ_policy import _ActionDecoder, _PriorNet
+from yahmp.rl.policy import MotionEncoder, _build_mlp
 from yahmp.rl.residual_vq import ResidualVQ, RVQCfg
 
 
+class _CategoricalHighLevel(nn.Module):
+    """Maps ``(s_rich, g_task)`` to flat per-head categorical logits.
+
+    The output is a single tensor of shape
+    ``(B, num_heads * codebook_size)``; the distribution module reshapes
+    it to ``(B, num_heads, codebook_size)`` before instantiating a stack
+    of independent Categoricals.
+    """
+
+    def __init__(
+        self,
+        s_dim: int,
+        goal_dim: int,
+        num_heads: int,
+        codebook_size: int,
+        hidden_dims: tuple[int, ...] | list[int],
+        activation: str,
+        layer_norm: bool,
+    ) -> None:
+        super().__init__()
+        self.num_heads = int(num_heads)
+        self.codebook_size = int(codebook_size)
+        self.net = _build_mlp(
+            input_dim=int(s_dim) + int(goal_dim),
+            output_dim=self.num_heads * self.codebook_size,
+            hidden_dims=hidden_dims,
+            activation=activation,
+            layer_norm=layer_norm,
+        )
+
+    def forward(self, s: torch.Tensor, goal: torch.Tensor) -> torch.Tensor:
+        return self.net(torch.cat((s, goal), dim=-1))
+
+
 class YahmpLocomotionActorModel(MLPModel):
-    """Actor for the YAHMP locomotion task with a frozen imitation backbone."""
+    """Hierarchical actor with frozen imitation backbone + categorical high-level."""
 
     def __init__(
         self,
@@ -48,6 +100,9 @@ class YahmpLocomotionActorModel(MLPModel):
         hidden_dims: tuple[int, ...] | list[int] = (512, 512, 256, 128),
         activation: str = "elu",
         obs_normalization: bool = True,
+        # Accepted for API parity with rl_cfg; not used (we attach our own
+        # MultiCategoricalDistribution sized from ``rvq_num_quantizers`` and
+        # ``rvq_codebook_size``).
         distribution_cfg: dict | None = None,
         task_goal_obs_dim: int = 0,
         proprio_obs_dim: int = 0,
@@ -68,6 +123,8 @@ class YahmpLocomotionActorModel(MLPModel):
         rvq_commitment_weight: float = 1.0,
         rvq_rotation_trick: bool = True,
     ) -> None:
+        del distribution_cfg  # always replaced below.
+
         self.task_goal_obs_dim = int(task_goal_obs_dim)
         self.proprio_obs_dim = int(proprio_obs_dim)
         self.history_steps = int(history_steps)
@@ -75,6 +132,8 @@ class YahmpLocomotionActorModel(MLPModel):
         self.latent_dim = int(latent_dim)
         self.layer_norm = bool(layer_norm)
         self.action_dim = int(output_dim)
+        self.num_active_codebooks = int(rvq_num_quantizers)
+        self.codebook_size = int(rvq_codebook_size)
 
         if self.task_goal_obs_dim <= 0:
             raise ValueError(
@@ -90,6 +149,14 @@ class YahmpLocomotionActorModel(MLPModel):
             )
         if self.latent_dim <= 0:
             raise ValueError(f"`latent_dim` must be positive, got {self.latent_dim}.")
+        if self.num_active_codebooks <= 0:
+            raise ValueError(
+                f"`rvq_num_quantizers` must be positive, got {self.num_active_codebooks}."
+            )
+        if self.codebook_size <= 0:
+            raise ValueError(
+                f"`rvq_codebook_size` must be positive, got {self.codebook_size}."
+            )
 
         self.current_obs_dim = self.task_goal_obs_dim + self.proprio_obs_dim
         self.history_obs_dim = self.proprio_obs_dim * self.history_steps
@@ -102,9 +169,17 @@ class YahmpLocomotionActorModel(MLPModel):
             hidden_dims=hidden_dims,
             activation=activation,
             obs_normalization=obs_normalization,
-            distribution_cfg=distribution_cfg,
+            distribution_cfg=None,  # categorical distribution attached below.
         )
+        # MLP head is unused — get_latent already returns the distribution input.
         self.mlp = nn.Identity()
+
+        # Attach the categorical distribution AFTER super().__init__ so we can
+        # size it from rvq_* explicitly (instead of inheriting output_dim=29).
+        self.distribution = MultiCategoricalDistribution(
+            output_dim=self.num_active_codebooks,
+            codebook_size=self.codebook_size,
+        )
 
         expected_obs_dim = self.current_obs_dim + self.history_obs_dim
         if self.obs_dim != expected_obs_dim:
@@ -134,10 +209,12 @@ class YahmpLocomotionActorModel(MLPModel):
             activation=activation,
             layer_norm=self.layer_norm,
         )
-        self.high_level = _PosteriorNet(
+        # Trainable: produces categorical logits over RVQ codebook indices.
+        self.high_level = _CategoricalHighLevel(
             s_dim=self.s_dim,
             goal_dim=self.goal_dim,
-            latent_dim=self.latent_dim,
+            num_heads=self.num_active_codebooks,
+            codebook_size=self.codebook_size,
             hidden_dims=high_level_hidden_dims,
             activation=activation,
             layer_norm=self.layer_norm,
@@ -168,20 +245,21 @@ class YahmpLocomotionActorModel(MLPModel):
 
         # ``history_encoder``, ``prior`` and ``action_decoder`` are deterministic
         # imitation-backbone modules: freeze with ``eval()`` +
-        # ``requires_grad=False``.
-        # ``rvq`` is special — the underlying VectorQuantize layers only apply
-        # the Straight-Through Estimator when ``self.training=True``, so the
-        # module must stay in train mode to let gradients reach ``high_level``.
-        # Codebook EMA updates are suppressed by setting ``freeze_codebook=True``
-        # on each layer (see ``_freeze_rvq``).
+        # ``requires_grad=False``. ``rvq`` is special: STE only fires in train
+        # mode, and we want gradients through the codebook lookup at inference
+        # time too, so we keep it in train mode but mark ``freeze_codebook``.
         self._frozen_eval_submodules: tuple[str, ...] = (
             "history_encoder",
             "prior",
             "action_decoder",
         )
 
+        # P1: pin g_task slot of the normalizer to identity from the start.
+        self._pin_gtask_normalizer_identity()
+
     def _get_latent_dim(self) -> int:
-        # Not used: `self.mlp` is overwritten with `nn.Identity()` after init.
+        # MLP is overwritten with nn.Identity right after super().__init__,
+        # so this value only affects the size of the discarded MLP layer.
         return self.action_dim
 
     def _split_obs(
@@ -196,18 +274,55 @@ class YahmpLocomotionActorModel(MLPModel):
             obs_flat[:, current_end:history_end],
         )
 
-    def get_latent(
-        self, obs: TensorDict, masks: torch.Tensor | None = None, hidden_state=None
-    ) -> torch.Tensor:
-        obs_flat = super().get_latent(obs, masks, hidden_state)
+    def _build_s_rich(
+        self, obs_flat: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return ``(s_rich, g_task)`` given a normalized obs vector."""
         g_task, proprio, history_obs = self._split_obs(obs_flat)
         history_latent = self.history_encoder(history_obs)
         s_rich = torch.cat((proprio, history_latent), dim=-1)
+        return s_rich, g_task
 
-        z = self.high_level(s_rich, g_task)
-        zp = self.prior(s_rich).detach()
-        y = z - zp
-        y_hat, _ = self.rvq(y)
+    def get_latent(
+        self, obs: TensorDict, masks: torch.Tensor | None = None, hidden_state=None
+    ) -> torch.Tensor:
+        """Return flat categorical logits ``(B, num_heads * codebook_size)``."""
+        obs_flat = super().get_latent(obs, masks, hidden_state)
+        s_rich, g_task = self._build_s_rich(obs_flat)
+        return self.high_level(s_rich, g_task)
+
+    def lookup_codebook(self, indices: torch.Tensor) -> torch.Tensor:
+        """Sum codeword vectors selected by ``indices`` across RVQ layers.
+
+        Args:
+          indices: (B, num_active_codebooks) int64.
+
+        Returns:
+          y_hat: (B, latent_dim) — the same quantity the RVQ forward path would
+          produce given those indices, sans any STE / commitment loss.
+        """
+        if indices.dim() != 2 or indices.shape[-1] != self.num_active_codebooks:
+            raise ValueError(
+                "lookup_codebook expected indices of shape "
+                f"(B, {self.num_active_codebooks}), got {tuple(indices.shape)}."
+            )
+        B = indices.shape[0]
+        codebook_dim = self.rvq.codebook_dim
+        y_hat = torch.zeros(B, codebook_dim, device=indices.device, dtype=torch.float32)
+        for qi, layer in enumerate(self.rvq.layers[: self.num_active_codebooks]):
+            embed = layer._codebook.embed  # (1, codebook_size, codebook_dim)
+            codebook = embed[0]
+            y_hat = y_hat + codebook[indices[:, qi]]
+        return self.rvq.project_out(y_hat)
+
+    def indices_to_continuous_action(
+        self, obs: TensorDict, indices: torch.Tensor
+    ) -> torch.Tensor:
+        """Decode RVQ indices into the continuous joint-position action."""
+        obs_flat = MLPModel.get_latent(self, obs, None, None)
+        s_rich, _ = self._build_s_rich(obs_flat)
+        zp = self.prior(s_rich)
+        y_hat = self.lookup_codebook(indices.to(obs_flat.device))
         z_hat = zp + y_hat
         return self.action_decoder(s_rich, z_hat)
 
@@ -217,7 +332,7 @@ class YahmpLocomotionActorModel(MLPModel):
             module = getattr(self, name, None)
             if module is not None:
                 module.eval()
-        # Keep RVQ in train mode (for STE) but with codebook frozen.
+        # Keep RVQ in train mode for STE; codebook frozen via _freeze_rvq.
         self.rvq.train(mode)
         return self
 
@@ -226,19 +341,21 @@ class YahmpLocomotionActorModel(MLPModel):
         imitation_state_dict: dict[str, torch.Tensor],
         strict: bool = True,
         copy_normalizer_proprio_history: bool = True,
+        expert_state_dict: dict[str, torch.Tensor] | None = None,
     ) -> None:
-        """Load imitation submodules and freeze the low-level action backbone.
-
-        ``history_encoder`` is copied and frozen because the default-offset
-        imitation and locomotion tasks share the same proprio-only history
-        semantics. ``prior``, ``rvq`` and ``action_decoder`` are also copied and
-        frozen.
+        """Load imitation submodules, freeze the backbone, set normalizer stats.
 
         Args:
           imitation_state_dict: state_dict of a trained ``YahmpImitationModel``.
-          strict: forward to ``Module.load_state_dict`` when loading each submodule.
-          copy_normalizer_proprio_history: if True, slice the imitation normalizer
-            and copy proprio + history portions into this model's normalizer.
+            Used to copy ``history_encoder``, ``prior``, ``rvq`` and
+            ``action_decoder``.
+          strict: forwarded to ``Module.load_state_dict`` for each submodule.
+          copy_normalizer_proprio_history: if True, source the proprio+history
+            slots of this model's obs-normalizer from a checkpoint. The g_task
+            slot is always pinned to identity (P1) regardless.
+          expert_state_dict: optional EncDec expert checkpoint. When provided,
+            its normalizer is used as the source for the proprio+history slots
+            (P2). Otherwise the imitation checkpoint is used.
         """
         by_prefix: dict[str, dict[str, torch.Tensor]] = {}
         for key, tensor in imitation_state_dict.items():
@@ -270,7 +387,15 @@ class YahmpLocomotionActorModel(MLPModel):
         self._freeze_frozen_submodules()
 
         if copy_normalizer_proprio_history and self.obs_normalization:
-            self._copy_normalizer_proprio_history(imitation_state_dict)
+            if expert_state_dict is not None:
+                self._copy_normalizer_proprio_history(
+                    expert_state_dict, source_name="expert"
+                )
+            else:
+                self._copy_normalizer_proprio_history(
+                    imitation_state_dict, source_name="imitation"
+                )
+            self._pin_gtask_normalizer_identity()
 
     def _freeze_frozen_submodules(self) -> None:
         for name in self._frozen_eval_submodules:
@@ -281,82 +406,111 @@ class YahmpLocomotionActorModel(MLPModel):
         self._freeze_rvq()
 
     def _freeze_rvq(self) -> None:
-        """Freeze RVQ parameters and codebooks while keeping STE gradient flow.
-
-        ``vector_quantize_pytorch`` applies the Straight-Through Estimator
-        only when the VQ module is in train mode. We want gradient to flow
-        through the quantizer (so the high-level net can learn), but we do
-        *not* want EMA codebook updates. Setting ``freeze_codebook=True`` on
-        each VectorQuantize layer disables the EMA updates; combined with
-        ``requires_grad=False`` on parameters, the RVQ becomes a frozen but
-        gradient-transparent module.
-        """
+        """Freeze RVQ parameters + codebooks while keeping STE gradient flow."""
         for p in self.rvq.parameters():
             p.requires_grad = False
         for layer in self.rvq.layers:
             layer.freeze_codebook = True
         self.rvq.train()
 
-    def _copy_normalizer_proprio_history(
-        self, imitation_state_dict: dict[str, torch.Tensor]
-    ) -> None:
-        """Copy proprio and history normalizer slots from imitation.
+    def _pin_gtask_normalizer_identity(self) -> None:
+        """Force the g_task slot of the obs-normalizer to (mean=0, var=1, std=1).
 
-        Imitation current-obs layout was ``[motion_ref | proprio]``; locomotion
-        is ``[g_task | proprio]``. With default-offset imitation targets, both
-        pipelines use the same proprio block and proprio-only history block; the
-        task-goal slot keeps fresh (mean=0, var=1) statistics.
-
-        The imitation ``count`` is also transferred to lock these stats in: PPO
-        keeps calling ``obs_normalizer.update()`` each env step, and with
-        ``count=0`` ``EmpiricalNormalization`` uses ``rate = batch_size / count``
-        which collapses to ``1.0`` on the first call and overwrites the copied
-        stats entirely. Restoring a large ``count`` makes the subsequent rate
-        negligible, so the proprio stats stay consistent with imitation
-        throughout PPO training.
+        Called at construction and after every external normalizer load. The
+        EmpiricalNormalization runs over the full obs vector, so subsequent
+        ``update`` calls will still nudge the g_task slot — but with a large
+        ``count`` (set by ``_copy_normalizer_proprio_history``) those nudges are
+        negligibly small over a full training run.
         """
-        imitation_mean = imitation_state_dict.get("obs_normalizer._mean")
-        imitation_var = imitation_state_dict.get("obs_normalizer._var")
-        imitation_std = imitation_state_dict.get("obs_normalizer._std")
-        imitation_count = imitation_state_dict.get("obs_normalizer.count")
-        if imitation_mean is None or imitation_var is None or imitation_std is None:
+        if not self.obs_normalization:
+            return
+        end = self.task_goal_obs_dim
+        if end <= 0:
+            return
+        with torch.no_grad():
+            self.obs_normalizer._mean[:, :end].zero_()  # type: ignore[attr-defined]
+            self.obs_normalizer._var[:, :end].fill_(1.0)  # type: ignore[attr-defined]
+            self.obs_normalizer._std[:, :end].fill_(1.0)  # type: ignore[attr-defined]
+
+    def _copy_normalizer_proprio_history(
+        self,
+        source_state_dict: dict[str, torch.Tensor],
+        source_name: str = "source",
+    ) -> None:
+        """Copy proprio+history obs-normalizer slots from an external state_dict.
+
+        The source can be either an imitation or expert checkpoint; both share
+        the layout ``[motion-or-command(M) | proprio(P) | history(P*H)]``.
+        Only the ``[proprio | history]`` tail is copied into the locomotion
+        normalizer (which has layout ``[g_task(G) | proprio(P) | history(P*H)]``).
+
+        The ``count`` buffer is also copied so subsequent in-place
+        ``EmpiricalNormalization.update`` calls during PPO barely move the
+        stats (rate ≈ batch_size / count ≈ 10⁻⁸).
+        """
+        source_mean = source_state_dict.get("obs_normalizer._mean")
+        source_var = source_state_dict.get("obs_normalizer._var")
+        source_std = source_state_dict.get("obs_normalizer._std")
+        source_count = source_state_dict.get("obs_normalizer.count")
+        if source_mean is None or source_var is None or source_std is None:
+            print(
+                f"[YahmpLocomotionActorModel] {source_name} state_dict missing "
+                "obs_normalizer buffers — skipping normalizer copy."
+            )
             return
 
-        # Imitation obs layout: [imit_command | proprio | history(proprio * H)].
-        # Locomotion obs layout: [task_goal | proprio | history(proprio * H)].
-        imit_total = int(imitation_mean.shape[-1])
+        src_total = int(source_mean.shape[-1])
         tail_dim = self.proprio_obs_dim * (1 + self.history_steps)
-        imit_motion_obs_dim = imit_total - tail_dim
-        if imit_motion_obs_dim < 0:
+        src_motion_obs_dim = src_total - tail_dim
+        if src_motion_obs_dim < 0:
+            print(
+                f"[YahmpLocomotionActorModel] {source_name} normalizer too small "
+                f"({src_total}) for tail dim {tail_dim}; skipping."
+            )
             return
 
-        tail_lo_imit = imit_motion_obs_dim
-        tail_hi_imit = imit_motion_obs_dim + tail_dim
+        tail_lo_src = src_motion_obs_dim
+        tail_hi_src = src_motion_obs_dim + tail_dim
         tail_lo_loc = self.task_goal_obs_dim
         tail_hi_loc = self.task_goal_obs_dim + tail_dim
         loc_total = int(self.obs_normalizer._mean.shape[-1])  # type: ignore[attr-defined]
         if tail_hi_loc > loc_total:
+            print(
+                f"[YahmpLocomotionActorModel] locomotion normalizer too small "
+                f"({loc_total}) for tail dim {tail_dim}; skipping."
+            )
             return
 
         with torch.no_grad():
             self.obs_normalizer._mean[:, tail_lo_loc:tail_hi_loc] = (  # type: ignore[attr-defined]
-                imitation_mean[:, tail_lo_imit:tail_hi_imit]
+                source_mean[:, tail_lo_src:tail_hi_src]
             )
             self.obs_normalizer._var[:, tail_lo_loc:tail_hi_loc] = (  # type: ignore[attr-defined]
-                imitation_var[:, tail_lo_imit:tail_hi_imit]
+                source_var[:, tail_lo_src:tail_hi_src]
             )
             self.obs_normalizer._std[:, tail_lo_loc:tail_hi_loc] = (  # type: ignore[attr-defined]
-                imitation_std[:, tail_lo_imit:tail_hi_imit]
+                source_std[:, tail_lo_src:tail_hi_src]
             )
-            if imitation_count is not None:
-                self.obs_normalizer.count.copy_(imitation_count)  # type: ignore[attr-defined]
+            if source_count is not None:
+                self.obs_normalizer.count.copy_(source_count)  # type: ignore[attr-defined]
+
+        count_val = (
+            int(self.obs_normalizer.count.item())  # type: ignore[attr-defined]
+            if source_count is not None
+            else 0
+        )
+        print(
+            f"[YahmpLocomotionActorModel] Copied proprio+history obs-normalizer "
+            f"from {source_name} (tail dims {tail_lo_src}:{tail_hi_src} → "
+            f"{tail_lo_loc}:{tail_hi_loc}, count={count_val})."
+        )
 
     def as_onnx(self, verbose: bool = False) -> nn.Module:
         return _OnnxYahmpLocomotionActorModel(self, verbose=verbose)
 
 
 class _OnnxYahmpLocomotionActorModel(nn.Module):
-    """ONNX wrapper for ``YahmpLocomotionActorModel`` — deterministic mean action."""
+    """ONNX wrapper: deterministic (argmax) categorical → continuous action."""
 
     is_recurrent: bool = False
 
@@ -375,6 +529,8 @@ class _OnnxYahmpLocomotionActorModel(nn.Module):
         self.current_obs_dim = model.current_obs_dim
         self.proprio_obs_dim = model.proprio_obs_dim
         self.history_obs_dim = model.history_obs_dim
+        self.num_heads = model.num_active_codebooks
+        self.codebook_size = model.codebook_size
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.obs_normalizer(x)
@@ -386,10 +542,19 @@ class _OnnxYahmpLocomotionActorModel(nn.Module):
         history_obs = x[:, current_end:history_end]
         history_latent = self.history_encoder(history_obs)
         s_rich = torch.cat((proprio, history_latent), dim=-1)
-        z = self.high_level(s_rich, g_task)
+        logits = self.high_level(s_rich, g_task)
+        logits = logits.view(-1, self.num_heads, self.codebook_size)
+        indices = logits.argmax(dim=-1)  # (B, num_heads)
+        # Codebook lookup + decode.
+        B = indices.shape[0]
+        codebook_dim = self.rvq.codebook_dim
+        y_hat = torch.zeros(B, codebook_dim, device=indices.device, dtype=torch.float32)
+        for qi, layer in enumerate(self.rvq.layers[: self.num_heads]):
+            embed = layer._codebook.embed
+            codebook = embed[0]
+            y_hat = y_hat + codebook[indices[:, qi]]
+        y_hat = self.rvq.project_out(y_hat)
         zp = self.prior(s_rich)
-        y = z - zp
-        y_hat, _ = self.rvq(y)
         z_hat = zp + y_hat
         return self.action_decoder(s_rich, z_hat)
 

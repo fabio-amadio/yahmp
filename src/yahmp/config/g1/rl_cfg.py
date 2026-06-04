@@ -349,14 +349,14 @@ def unitree_g1_yahmp_locomotion_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg
             class_name="yahmp.rl.locomotion_policy:YahmpLocomotionActorModel",
             hidden_dims=(512, 512, 256, 128),
             activation="elu",
-            # Frozen imitation submodules were trained with an unfitted
-            # obs_normalizer (identity passthrough); feed raw obs here to match.
-            obs_normalization=False,
-            distribution_cfg={
-                "class_name": "GaussianDistribution",
-                "init_std": 1.0,
-                "std_type": "log",
-            },
+            # P1/P2: the actor warm-starts proprio+history normalizer stats
+            # from an external checkpoint and pins the g_task slot to identity.
+            # See ``YahmpLocomotionActorModel`` for the full design rationale.
+            obs_normalization=True,
+            # P3: high-level produces categorical RVQ-index logits. The actor
+            # ignores distribution_cfg (kept here for documentation) and always
+            # attaches MultiCategoricalDistribution sized from rvq_* fields.
+            distribution_cfg=None,
         ),
         critic=RslRlModelCfg(
             class_name="yahmp.rl.policy:YahmpCriticModel",
@@ -365,10 +365,11 @@ def unitree_g1_yahmp_locomotion_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg
             obs_normalization=True,
         ),
         algorithm=RslRlPpoAlgorithmCfg(
+            class_name="yahmp.rl.categorical_ppo:YahmpCategoricalPPO",
             value_loss_coef=1.0,
             use_clipped_value_loss=True,
             clip_param=0.2,
-            entropy_coef=0.005,
+            entropy_coef=0.01,
             num_learning_epochs=5,
             num_mini_batches=4,
             learning_rate=5.0e-4,

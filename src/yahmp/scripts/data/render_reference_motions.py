@@ -11,13 +11,14 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import torch
 import tyro
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.tasks.registry import load_env_cfg
+from mjlab.viewer import ViewerConfig
 
 from yahmp.mdp import MotionCommand
 from yahmp.mdp.motion.library import MotionLibrary
@@ -34,6 +35,13 @@ class RenderReferenceMotionsConfig:
   width: int | None = 1280
   height: int | None = 720
   fps: float | None = None
+  camera_azimuth: float | None = None
+  camera_elevation: float | None = None
+  camera_distance: float | None = None
+  camera_fovy: float | None = None
+  camera_lookat: tuple[float, float, float] | None = None
+  camera_origin: Literal["auto", "world", "asset_root", "asset_body"] | None = None
+  camera_body_name: str | None = None
   max_motions: int | None = None
   overwrite: bool = False
 
@@ -115,6 +123,28 @@ def _frame_count_for_motion(length_s: float, fps: float) -> int:
   return max(int(math.ceil(length_s * fps)) + 1, 2)
 
 
+def _apply_camera_overrides(cfg: RenderReferenceMotionsConfig, viewer: ViewerConfig) -> None:
+  if cfg.camera_azimuth is not None:
+    viewer.azimuth = float(cfg.camera_azimuth)
+  if cfg.camera_elevation is not None:
+    viewer.elevation = float(cfg.camera_elevation)
+  if cfg.camera_distance is not None:
+    viewer.distance = float(cfg.camera_distance)
+  if cfg.camera_fovy is not None:
+    viewer.fovy = float(cfg.camera_fovy)
+  if cfg.camera_lookat is not None:
+    viewer.lookat = tuple(float(value) for value in cfg.camera_lookat)
+  if cfg.camera_body_name is not None:
+    viewer.body_name = cfg.camera_body_name
+  if cfg.camera_origin is not None:
+    viewer.origin_type = {
+      "auto": ViewerConfig.OriginType.AUTO,
+      "world": ViewerConfig.OriginType.WORLD,
+      "asset_root": ViewerConfig.OriginType.ASSET_ROOT,
+      "asset_body": ViewerConfig.OriginType.ASSET_BODY,
+    }[cfg.camera_origin]
+
+
 def _build_motion_library_for_rendering(
   command: MotionCommand, motion_source: str
 ) -> tuple[MotionLibrary, int]:
@@ -147,6 +177,7 @@ def run(cfg: RenderReferenceMotionsConfig) -> None:
     env_cfg.viewer.width = cfg.width
   if cfg.height is not None:
     env_cfg.viewer.height = cfg.height
+  _apply_camera_overrides(cfg, env_cfg.viewer)
 
   motion_cfg = env_cfg.commands.get("motion")
   if motion_cfg is None:

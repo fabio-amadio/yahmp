@@ -717,14 +717,6 @@ class YahmpLocomotionOnPolicyRunner(YahmpOnPolicyRunner):
         loaded = torch.load(
             checkpoint_path, map_location=self.device, weights_only=False
         )
-        checkpoint_mode = loaded.get("action_target_mode")
-        if checkpoint_mode != "default_offset":
-            raise ValueError(
-                "Locomotion requires an imitation checkpoint trained with "
-                "`action_target_mode='default_offset'` and current checkpoint "
-                f"metadata reports {checkpoint_mode!r}. Retrain imitation with "
-                "the current default-offset runner before launching locomotion."
-            )
         imitation_sd = self._extract_imitation_state_dict(loaded)
         actor.load_imitation_weights(
             imitation_sd,

@@ -11,7 +11,6 @@ from mjlab.rl import (
 from yahmp.rl.imitation_trainer import ImitationLossWeights, ImitationTrainerCfg
 
 UploadModelMode = Literal["all", "rolling_latest"]
-ImitationActionTargetMode = Literal["expert_residual", "default_offset"]
 
 
 @dataclass
@@ -109,7 +108,6 @@ class YahmpImitationRunnerCfg(RslRlBaseRunnerCfg):
     )
   )
   expert_checkpoint: str | None = None
-  action_target_mode: ImitationActionTargetMode = "default_offset"
   loss_weights: ImitationLossWeights = field(default_factory=ImitationLossWeights)
   trainer: ImitationTrainerCfg = field(default_factory=ImitationTrainerCfg)
   upload_model_mode: UploadModelMode = "rolling_latest"

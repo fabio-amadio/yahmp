@@ -316,7 +316,6 @@ def unitree_g1_yahmp_imitation_runner_cfg() -> YahmpImitationRunnerCfg:
             activation="elu",
             obs_normalization=True,
         ),
-        action_target_mode="default_offset",
         loss_weights=ImitationLossWeights(action=1.0, mm=0.1, reg=0.05, vq=1.0),
         trainer=ImitationTrainerCfg(
             lr=2e-4,
@@ -337,7 +336,6 @@ def unitree_g1_yahmp_imitation_runner_cfg() -> YahmpImitationRunnerCfg:
 
 def unitree_g1_yahmp_imitation_residual_runner_cfg() -> YahmpImitationRunnerCfg:
     cfg = unitree_g1_yahmp_imitation_runner_cfg()
-    cfg.action_target_mode = "expert_residual"
     cfg.trainer = ImitationTrainerCfg(lr=2e-4, grad_clip_norm=1.0)
     cfg.experiment_name = "g1_yahmp_imitation_residual"
     cfg.wandb_tags = _wandb_tags("yahmp", "imitation", "rvq", "residual")
@@ -351,7 +349,9 @@ def unitree_g1_yahmp_locomotion_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg
             class_name="yahmp.rl.locomotion_policy:YahmpLocomotionActorModel",
             hidden_dims=(512, 512, 256, 128),
             activation="elu",
-            obs_normalization=True,
+            # Frozen imitation submodules were trained with an unfitted
+            # obs_normalizer (identity passthrough); feed raw obs here to match.
+            obs_normalization=False,
             distribution_cfg={
                 "class_name": "GaussianDistribution",
                 "init_std": 1.0,

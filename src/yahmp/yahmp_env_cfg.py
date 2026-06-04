@@ -145,12 +145,11 @@ def _history_term(*, include_privileged: bool = False) -> ObservationTermCfg:
 
 def _actions() -> dict[str, ActionTermCfg]:
     return {
-        "joint_pos": mdp.ResidualJointPositionActionCfg(
+        "joint_pos": JointPositionActionCfg(
             entity_name="robot",
             actuator_names=(".*",),
             scale=0.5,
-            use_default_offset=False,
-            command_name="motion",
+            use_default_offset=True,
         )
     }
 

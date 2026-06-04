@@ -174,16 +174,29 @@ class PolicySpec:
     if self.motion_command_class not in {
       "JointPosAnchorRpMotionCommand",
       "FutureJointPosAnchorRpMotionCommand",
+      # Legacy ONNX exports used this metadata name before the command class
+      # was renamed. Keep accepting it as a metadata alias for old policies.
+      "JointRefAnchorRpMotionCommand",
+      "JointStateAnchorRpMotionCommand",
+      "FutureJointStateAnchorRpMotionCommand",
     }:
       raise NotImplementedError(
         "This script supports only YAHMP JointPosAnchorRp-derived commands, got "
         f"`{self.motion_command_class}`."
       )
-    expected_command_dim = self.motion_command_num_steps * (len(self.joint_names) + 6)
-    if self.motion_command_dim != expected_command_dim:
+    expected_pos_command_dim = self.motion_command_num_steps * (
+      len(self.joint_names) + 6
+    )
+    expected_state_command_dim = self.motion_command_num_steps * (
+      2 * len(self.joint_names) + 6
+    )
+    if self.motion_command_dim not in {
+      expected_pos_command_dim,
+      expected_state_command_dim,
+    }:
       raise ValueError(
         "This script supports only JointPosAnchorRp-style commands with per-step "
-        "dim = num_joints + 6. Got motion_command_dim="
+        "dim = num_joints + 6 or 2 * num_joints + 6. Got motion_command_dim="
         f"{self.motion_command_dim}, num_steps={self.motion_command_num_steps}, "
         f"num_joints={len(self.joint_names)}."
       )
@@ -558,24 +571,28 @@ def _command_value(
   frame: MotionFrame,
 ) -> np.ndarray:
   if spec.motion_command_num_steps <= 1:
-    return _single_command_step_value(frame)
+    return _single_command_step_value(spec, frame)
 
   frames = []
   for step_offset in spec.motion_command_step_offsets:
     future_time_s = time_s + float(step_offset) * spec.control_dt
-    frames.append(_single_command_step_value(clip.sample(future_time_s)))
+    frames.append(_single_command_step_value(spec, clip.sample(future_time_s)))
   return np.concatenate(frames).astype(np.float32)
 
 
-def _single_command_step_value(frame: MotionFrame) -> np.ndarray:
+def _single_command_step_value(spec: PolicySpec, frame: MotionFrame) -> np.ndarray:
   anchor_lin_vel_b = _quat_rotate_inverse(frame.root_quat_w, frame.root_lin_vel_w)
   anchor_ang_vel_b = _quat_rotate_inverse(frame.root_quat_w, frame.root_ang_vel_w)
-  parts = [
-    frame.joint_pos,
-    anchor_lin_vel_b[:2],
-    anchor_ang_vel_b[2:3],
-    frame.root_pos_w[2:3],
-  ]
+  parts = [frame.joint_pos]
+  if spec.motion_command_step_dim == 2 * len(spec.joint_names) + 6:
+    parts.append(frame.joint_vel)
+  parts.extend(
+    (
+      anchor_lin_vel_b[:2],
+      anchor_ang_vel_b[2:3],
+      frame.root_pos_w[2:3],
+    )
+  )
   roll, pitch, _ = _quat_roll_pitch_yaw(frame.root_quat_w)
   parts.extend(
     (

@@ -326,6 +326,37 @@ class YahmpLocomotionActorModel(MLPModel):
         z_hat = zp + y_hat
         return self.action_decoder(s_rich, z_hat)
 
+    def forward(
+        self,
+        obs: TensorDict,
+        masks: torch.Tensor | None = None,
+        hidden_state=None,
+        stochastic_output: bool = False,
+    ) -> torch.Tensor:
+        """Custom forward to keep the inference path env-compatible.
+
+        - ``stochastic_output=True`` (PPO training rollout): defer to the base
+          ``MLPModel.forward`` so that the categorical distribution samples
+          indices ``(B, num_heads)`` — these go into ``transition.actions``
+          and are converted to continuous joints by ``YahmpCategoricalPPO.act``.
+        - ``stochastic_output=False`` (inference / play / mean_actions in
+          symmetry augmentation): take the argmax indices and decode them all
+          the way to the continuous joint action ``(B, 29)``. Without this
+          override the env would receive a ``(B, num_heads)`` int tensor and
+          raise an action-shape error.
+        """
+        if stochastic_output:
+            return super().forward(obs, masks, hidden_state, stochastic_output=True)
+        obs_flat = MLPModel.get_latent(self, obs, masks, hidden_state)
+        s_rich, g_task = self._build_s_rich(obs_flat)
+        logits = self.high_level(s_rich, g_task)
+        logits_view = logits.view(-1, self.num_active_codebooks, self.codebook_size)
+        indices = logits_view.argmax(dim=-1).to(torch.int64)
+        zp = self.prior(s_rich)
+        y_hat = self.lookup_codebook(indices)
+        z_hat = zp + y_hat
+        return self.action_decoder(s_rich, z_hat)
+
     def train(self, mode: bool = True) -> "YahmpLocomotionActorModel":
         super().train(mode)
         for name in self._frozen_eval_submodules:

@@ -44,7 +44,15 @@ PUSH_VELOCITY_RANGE = {
 
 
 def _velocity_command_kwargs() -> dict[str, object]:
-    """Default ranges + resampling for the omnidirectional velocity command."""
+    """Default ranges + resampling for the omnidirectional velocity command.
+
+    Ranges match the final curriculum stage (fast-walk cap), which in turn
+    matches the locomotion content of the AMASS subset: ~93% of clips have
+    peak horizontal root speed under 1.5 m/s, p95 at ~1.75 m/s. We cap at
+    1.8 m/s forward (between p95 and p99) — sprint territory (>2.5 m/s) is
+    intentionally excluded because the dataset has effectively no support
+    there (<1% of clips, <0.5% of total motion duration).
+    """
     return {
         "entity_name": "robot",
         "resampling_time_range": (2.0, 4.0),
@@ -53,9 +61,9 @@ def _velocity_command_kwargs() -> dict[str, object]:
         "heading_command": False,
         "debug_vis": True,
         "ranges": UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-1.0, 1.5),
-            lin_vel_y=(-0.5, 0.5),
-            ang_vel_z=(0.0, 0.0),
+            lin_vel_x=(-0.8, 1.8),
+            lin_vel_y=(-0.6, 0.6),
+            ang_vel_z=(-1.5, 1.5),
         ),
     }
 
@@ -240,7 +248,26 @@ def _terminations() -> dict[str, TerminationTermCfg]:
 
 
 def _curriculum() -> dict[str, CurriculumTermCfg]:
-    """Progressively expand the velocity ranges in three stages."""
+    """Three-stage curriculum aligned to the AMASS subset distribution.
+
+    Dataset is dominated by idle + slow walk + turn-in-place + transitions
+    (~93% of clips have peak speed <1.5 m/s, p95 = 1.75 m/s). True running
+    (>2.5 m/s) is <1% of clips and is excluded from the command range —
+    the expert/imitation backbone has effectively no codes for that regime.
+
+    Stages:
+      1. **Quasi-static + rotations** — slow linear, full angular. Matches
+         the densest region of the dataset (sway, turn-in-place, slow walk).
+      2. **Mixed locomotion** — moderate linear + angular, covers walk +
+         walk_turn + sidestep + change_direction. Natural dataset regime.
+      3. **Fast walk** — cap at 1.8 m/s (between p95 and p99 of the dataset
+         peak speeds). Still walking territory, NOT running.
+
+    Iteration budget (assumes max_iterations=20_000, num_steps_per_env=24):
+      stage 1: 0 → 2k iters (10%)
+      stage 2: 2k → 6k iters (20%)
+      stage 3: 6k → end (70%)
+    """
     return {
         "command_vel": CurriculumTermCfg(
             func=vel_mdp.commands_vel,
@@ -249,21 +276,26 @@ def _curriculum() -> dict[str, CurriculumTermCfg]:
                 "velocity_stages": [
                     {
                         "step": 0,
-                        "lin_vel_x": (-0.5, 1.0),
+                        "lin_vel_x": (-0.3, 0.5),
                         "lin_vel_y": (-0.3, 0.3),
-                        "ang_vel_z": (0.0, 0.0),
+                        # Narrower yaw to match slow turn-in-place regime
+                        # of the AMASS subset. The previous (-1.5, 1.5) was
+                        # asking 86°/s yaw while quasi-standing, a regime
+                        # the frozen decoder has few codes for → angular
+                        # tracking plateaued in early stage 1.
+                        "ang_vel_z": (-0.8, 0.8),
                     },
                     {
-                        "step": 5000 * 24,
-                        "lin_vel_x": (-0.7, 1.2),
-                        "lin_vel_y": (-0.4, 0.4),
-                        "ang_vel_z": (-0.3, 0.3),
-                    },
-                    {
-                        "step": 10000 * 24,
-                        "lin_vel_x": (-1.0, 1.5),
+                        "step": 2000 * 24,
+                        "lin_vel_x": (-0.6, 1.2),
                         "lin_vel_y": (-0.5, 0.5),
-                        "ang_vel_z": (-0.5, 0.5),
+                        "ang_vel_z": (-1.5, 1.5),
+                    },
+                    {
+                        "step": 6000 * 24,
+                        "lin_vel_x": (-0.8, 1.8),
+                        "lin_vel_y": (-0.6, 0.6),
+                        "ang_vel_z": (-1.5, 1.5),
                     },
                 ],
             },

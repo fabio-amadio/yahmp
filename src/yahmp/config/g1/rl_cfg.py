@@ -369,9 +369,13 @@ def unitree_g1_yahmp_locomotion_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg
             value_loss_coef=1.0,
             use_clipped_value_loss=True,
             clip_param=0.2,
-            entropy_coef=0.01,
+            # NOTE: categorical entropy is ~55 nat at uniform (8 heads × log(1024)).
+            # With coef=0.01 the entropy bonus dominated the surrogate loss ~9x,
+            # pinning the policy near uniform. 0.002 gives a bonus ~2x the
+            # surrogate magnitude → enough exploration pressure without freeze.
+            entropy_coef=0.002,
             num_learning_epochs=5,
-            num_mini_batches=4,
+            num_mini_batches=8,  # was 4 — categorical params are 64x bigger than Gaussian
             learning_rate=5.0e-4,
             schedule="adaptive",
             gamma=0.99,
@@ -381,9 +385,7 @@ def unitree_g1_yahmp_locomotion_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg
         ),
         experiment_name="g1_yahmp_locomotion",
         wandb_project="yahmp",
-        wandb_tags=_wandb_tags(
-            "yahmp", "locomotion", "frozen_imitation", "high_level"
-        ),
+        wandb_tags=_wandb_tags("yahmp", "locomotion", "frozen_imitation", "high_level"),
         save_interval=500,
         num_steps_per_env=24,
         max_iterations=20_000,

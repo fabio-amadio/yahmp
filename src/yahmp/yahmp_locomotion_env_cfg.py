@@ -44,14 +44,25 @@ PUSH_VELOCITY_RANGE = {
 
 
 def _velocity_command_kwargs() -> dict[str, object]:
-    """Default ranges + resampling for the omnidirectional velocity command.
+    """Default ranges + resampling for the omnidirectional walk command.
 
-    Ranges match the final curriculum stage (fast-walk cap), which in turn
-    matches the locomotion content of the AMASS subset: ~93% of clips have
-    peak horizontal root speed under 1.5 m/s, p95 at ~1.75 m/s. We cap at
-    1.8 m/s forward (between p95 and p99) — sprint territory (>2.5 m/s) is
-    intentionally excluded because the dataset has effectively no support
-    there (<1% of clips, <0.5% of total motion duration).
+    Ranges match the final curriculum stage. Targeting a paper-deployable
+    walk specialist trained on the AMASS+OMOMO walk subset (79 clips,
+    21.4 min). Dataset stats over moving frames (N=34433):
+      vx     p90=+1.03  p95=+1.13  p99=+1.31  m/s
+      vy     p90=+0.27  p95=+0.36  p99=+0.65  m/s
+      wz     p90=+1.18  p95=+1.58  p99=+2.60  rad/s
+      |v_xy| p90=+1.09  p95=+1.19  p99=+1.40  m/s
+
+    Caps (deliberately walk-conservative for deployment):
+      - vx [-0.5, 1.5] m/s   covers p95 with margin
+      - vy [-0.4, 0.4] m/s   covers p95 (lateral steps in turning clips)
+      - ωz [-1.0, 1.0] rad/s deployment cap (covers ~77% of moving frames;
+        higher-yaw turning clips still teach the imitation prior — the
+        locomotion controller just won't command above 1.0)
+
+    resampling_time_range relaxed to (2.0, 4.0) vs LAFAN's (1.5, 3.0) since
+    walking commands are more stationary (no sprint-to-turn whiplash).
     """
     return {
         "entity_name": "robot",
@@ -61,9 +72,9 @@ def _velocity_command_kwargs() -> dict[str, object]:
         "heading_command": False,
         "debug_vis": True,
         "ranges": UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-0.8, 1.8),
-            lin_vel_y=(-0.6, 0.6),
-            ang_vel_z=(-1.5, 1.5),
+            lin_vel_x=(-0.5, 1.5),
+            lin_vel_y=(-0.4, 0.4),
+            ang_vel_z=(-1.0, 1.0),
         ),
     }
 
@@ -248,25 +259,25 @@ def _terminations() -> dict[str, TerminationTermCfg]:
 
 
 def _curriculum() -> dict[str, CurriculumTermCfg]:
-    """Three-stage curriculum aligned to the AMASS subset distribution.
+    """Two-stage curriculum for the AMASS+OMOMO walk subset.
 
-    Dataset is dominated by idle + slow walk + turn-in-place + transitions
-    (~93% of clips have peak speed <1.5 m/s, p95 = 1.75 m/s). True running
-    (>2.5 m/s) is <1% of clips and is excluded from the command range —
-    the expert/imitation backbone has effectively no codes for that regime.
+    Walk-only distribution is narrow (vx p95=1.13 m/s, wz p95=1.58 rad/s)
+    so the policy has very little new to learn between stages — a long
+    Stage 1 wastes iters that could be spent at full range. We use a
+    short warm-up (vx [-0.3, 0.8], ωz [-0.5, 0.5]) only to bootstrap
+    balance under low-command stress, then open immediately to the
+    deployment range.
 
     Stages:
-      1. **Quasi-static + rotations** — slow linear, full angular. Matches
-         the densest region of the dataset (sway, turn-in-place, slow walk).
-      2. **Mixed locomotion** — moderate linear + angular, covers walk +
-         walk_turn + sidestep + change_direction. Natural dataset regime.
-      3. **Fast walk** — cap at 1.8 m/s (between p95 and p99 of the dataset
-         peak speeds). Still walking territory, NOT running.
+      1. **Warm-up balance** — slow forward dominant (vx [-0.3, 0.8])
+         and gentle yaw (±0.5 rad/s). Just enough to find a stable
+         walking gait before being asked to track wider commands.
+      2. **Full walk range** — deployment range (vx [-0.5, 1.5],
+         ωz [-1.0, 1.0]). Same caps as the velocity command default.
 
-    Iteration budget (assumes max_iterations=20_000, num_steps_per_env=24):
-      stage 1: 0 → 2k iters (10%)
-      stage 2: 2k → 6k iters (20%)
-      stage 3: 6k → end (70%)
+    Iteration budget: tuned for fast convergence on a narrow task.
+      stage 1: 0 → 750 iters
+      stage 2: 750 → end
     """
     return {
         "command_vel": CurriculumTermCfg(
@@ -276,26 +287,15 @@ def _curriculum() -> dict[str, CurriculumTermCfg]:
                 "velocity_stages": [
                     {
                         "step": 0,
-                        "lin_vel_x": (-0.3, 0.5),
-                        "lin_vel_y": (-0.3, 0.3),
-                        # Narrower yaw to match slow turn-in-place regime
-                        # of the AMASS subset. The previous (-1.5, 1.5) was
-                        # asking 86°/s yaw while quasi-standing, a regime
-                        # the frozen decoder has few codes for → angular
-                        # tracking plateaued in early stage 1.
-                        "ang_vel_z": (-0.8, 0.8),
+                        "lin_vel_x": (-0.3, 0.8),
+                        "lin_vel_y": (-0.2, 0.2),
+                        "ang_vel_z": (-0.5, 0.5),
                     },
                     {
-                        "step": 2000 * 24,
-                        "lin_vel_x": (-0.6, 1.2),
-                        "lin_vel_y": (-0.5, 0.5),
-                        "ang_vel_z": (-1.5, 1.5),
-                    },
-                    {
-                        "step": 6000 * 24,
-                        "lin_vel_x": (-0.8, 1.8),
-                        "lin_vel_y": (-0.6, 0.6),
-                        "ang_vel_z": (-1.5, 1.5),
+                        "step": 750 * 24,
+                        "lin_vel_x": (-0.5, 1.5),
+                        "lin_vel_y": (-0.4, 0.4),
+                        "ang_vel_z": (-1.0, 1.0),
                     },
                 ],
             },

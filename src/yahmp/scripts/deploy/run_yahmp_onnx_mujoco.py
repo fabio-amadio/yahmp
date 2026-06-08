@@ -31,6 +31,7 @@ def _yahmp_task_ids() -> tuple[str, ...]:
 
   preferred = (
     "Mjlab-YAHMP-Unitree-G1",
+    "Mjlab-YAHMP-NonResidual-Unitree-G1",
     "Mjlab-YAHMP-Future-Unitree-G1",
   )
   available = set(list_tasks())

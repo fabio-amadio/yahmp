@@ -65,6 +65,14 @@ Utility scripts for data conversion, ONNX export, deployment, evaluation, and wo
 
 ## Extras
 
+### YAHMP-NonResidual
+
+`Mjlab-YAHMP-NonResidual-Unitree-G1` keeps the base YAHMP observations, commands, rewards, and PPO setup, but uses absolute `JointPositionActionCfg` actions instead of residual actions over the motion reference.
+
+```bash
+uv run train Mjlab-YAHMP-NonResidual-Unitree-G1 --env.scene.num-envs 8192
+```
+
 ### YAHMP-Future
 
 `Mjlab-YAHMP-Future-Unitree-G1` is a YAHMP variant that augments the base policy with a future-motion encoder. The actor still receives the current motion reference and proprioceptive observations directly, but it also encodes a short horizon of future motion references, which can help anticipate upcoming motion changes.

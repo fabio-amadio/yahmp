@@ -102,6 +102,13 @@ def unitree_g1_yahmp_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
   )
 
 
+def unitree_g1_yahmp_non_residual_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
+  cfg = unitree_g1_yahmp_ppo_runner_cfg()
+  cfg.experiment_name = "g1_yahmp_non_residual"
+  cfg.wandb_tags = _wandb_tags("yahmp", "history_encoder", "joint_position_actions")
+  return cfg
+
+
 def unitree_g1_yahmp_future_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
   return YahmpOnPolicyRunnerCfg(
     seed=1,

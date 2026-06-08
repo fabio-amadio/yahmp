@@ -240,17 +240,18 @@ def _events() -> dict[str, EventTermCfg]:
         },
       },
     ),
-    "motor_strength": EventTermCfg(
-      mode="startup",
-      func=dr.pd_gains,
-      params={
-        "asset_cfg": SceneEntityCfg("robot"),
-        "kp_range": (0.95, 1.05),
-        "kd_range": (0.95, 1.05),
-        "distribution": "uniform",
-        "operation": "scale",
-      },
-    ),
+    # Uncomment to randomize motor stiffness/damping during training.
+    # "motor_strength": EventTermCfg(
+    #   mode="startup",
+    #   func=dr.pd_gains,
+    #   params={
+    #     "asset_cfg": SceneEntityCfg("robot"),
+    #     "kp_range": (0.95, 1.05),
+    #     "kd_range": (0.95, 1.05),
+    #     "distribution": "uniform",
+    #     "operation": "scale",
+    #   },
+    # ),
     "foot_friction": EventTermCfg(
       mode="startup",
       func=dr.geom_friction,
@@ -261,15 +262,16 @@ def _events() -> dict[str, EventTermCfg]:
         "shared_random": True,
       },
     ),
-    "action_delay": EventTermCfg(
-      mode="interval",
-      func=dr.sync_actuator_delays,
-      interval_range_s=(0.02, 0.02),
-      params={
-        "asset_cfg": SceneEntityCfg("robot"),
-        "lag_range": (0, 2),
-      },
-    ),
+    # Uncomment together with delayed G1 actuators to randomize actuator delay.
+    # "action_delay": EventTermCfg(
+    #   mode="interval",
+    #   func=dr.sync_actuator_delays,
+    #   interval_range_s=(0.02, 0.02),
+    #   params={
+    #     "asset_cfg": SceneEntityCfg("robot"),
+    #     "lag_range": (0, 2),
+    #   },
+    # ),
   }
 
 
@@ -357,15 +359,16 @@ def _rewards() -> dict[str, RewardTermCfg]:
     ),
     "joint_torques_l2": RewardTermCfg(
       func=mdp.joint_torques_l2,
-      weight=-5.0e-5,
+      weight=-1.0e-4,
       params={"asset_cfg": SceneEntityCfg("robot", actuator_names=(".*",))},
     ),
     "joint_acc_l2": RewardTermCfg(
       func=mdp.joint_acc_l2,
-      weight=-5.0e-7,
+      weight=-2.0e-6,
       params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
     ),
     "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-1e-1),
+    "action_acc_l2": RewardTermCfg(func=mdp.action_acc_l2, weight=-1e-2),
     "joint_limit": RewardTermCfg(
       func=mdp.joint_pos_limits,
       weight=-10.0,

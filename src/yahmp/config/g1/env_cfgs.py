@@ -8,7 +8,7 @@ from mjlab.asset_zoo.robots import G1_ACTION_SCALE, get_g1_robot_cfg
 from mjlab.asset_zoo.robots.unitree_g1.g1_constants import (
   FULL_COLLISION_WITHOUT_SELF,
 )
-from mjlab.entity import EntityArticulationInfoCfg
+from mjlab.entity import EntityArticulationInfoCfg  # noqa: F401
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
@@ -141,10 +141,11 @@ def _apply_unitree_g1_overrides(
   robot_cfg = get_g1_robot_cfg()
   robot_cfg.collisions = (FULL_COLLISION_WITHOUT_SELF,)
   assert robot_cfg.articulation is not None
-  robot_cfg.articulation = EntityArticulationInfoCfg(
-    actuators=_make_g1_delayed_actuators(robot_cfg.articulation.actuators),
-    soft_joint_pos_limit_factor=robot_cfg.articulation.soft_joint_pos_limit_factor,
-  )
+  # Uncomment to wrap the default G1 actuators with actuator-delay dynamics.
+  # robot_cfg.articulation = EntityArticulationInfoCfg(
+  #   actuators=_make_g1_delayed_actuators(robot_cfg.articulation.actuators),
+  #   soft_joint_pos_limit_factor=robot_cfg.articulation.soft_joint_pos_limit_factor,
+  # )
   cfg.scene.entities = {"robot": robot_cfg}
 
   if (
@@ -278,6 +279,20 @@ def unitree_g1_yahmp_env_cfg(
 ) -> ManagerBasedRlEnvCfg:
   """Create the Unitree G1 YAHMP direct-training configuration."""
   return _apply_unitree_g1_overrides(make_env_cfg(), play=play)
+
+
+def unitree_g1_yahmp_non_residual_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Create the Unitree G1 YAHMP direct-training config with absolute actions."""
+  cfg = make_env_cfg()
+  cfg.actions["joint_pos"] = JointPositionActionCfg(
+    entity_name="robot",
+    actuator_names=(".*",),
+    scale=0.5,
+    use_default_offset=True,
+  )
+  return _apply_unitree_g1_overrides(cfg, play=play)
 
 
 def unitree_g1_yahmp_future_env_cfg(

@@ -141,14 +141,14 @@ def _privileged_terms() -> dict[str, ObservationTermCfg]:
       func=mdp.motion_friction_coeff,
       params={"asset_cfg": SceneEntityCfg("robot", geom_names=())},
     ),
-    "motor_strength_kp_rel": ObservationTermCfg(
-      func=mdp.motor_strength_kp_rel,
-      params={"asset_cfg": SceneEntityCfg("robot")},
-    ),
-    "motor_strength_kd_rel": ObservationTermCfg(
-      func=mdp.motor_strength_kd_rel,
-      params={"asset_cfg": SceneEntityCfg("robot")},
-    ),
+    # "motor_strength_kp_rel": ObservationTermCfg(
+    #   func=mdp.motor_strength_kp_rel,
+    #   params={"asset_cfg": SceneEntityCfg("robot")},
+    # ),
+    # "motor_strength_kd_rel": ObservationTermCfg(
+    #   func=mdp.motor_strength_kd_rel,
+    #   params={"asset_cfg": SceneEntityCfg("robot")},
+    # ),
   }
 
 

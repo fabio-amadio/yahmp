@@ -5,6 +5,6 @@ subfolders:
   - name: g1_mpc_ref_hand_pose
     weight: 10.0
   - name: g1_mpc_ref_ub_joints
-    weight: 15.0
+    weight: 10.0
   - name: g1_mpc_ref_primitives
     weight: 20.0

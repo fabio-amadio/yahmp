@@ -72,9 +72,9 @@ def _velocity_command_kwargs() -> dict[str, object]:
         "heading_command": False,
         "debug_vis": True,
         "ranges": UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-0.1, 0.5),
-            lin_vel_y=(-0.15, 0.15),
-            ang_vel_z=(-0.4, 0.4),
+            lin_vel_x=(-0.7, 1.5),
+            lin_vel_y=(-0.4, 0.4),
+            ang_vel_z=(-1.2, 1.2),
         ),
     }
 
@@ -193,12 +193,12 @@ def _events() -> dict[str, EventTermCfg]:
                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
             },
         ),
-        "push_robot": EventTermCfg(
-            func=mdp.push_by_setting_velocity,
-            mode="interval",
-            interval_range_s=(1.0, 3.0),
-            params={"velocity_range": PUSH_VELOCITY_RANGE},
-        ),
+        # "push_robot": EventTermCfg(
+        #     func=mdp.push_by_setting_velocity,
+        #     mode="interval",
+        #     interval_range_s=(1.0, 3.0),
+        #     params={"velocity_range": PUSH_VELOCITY_RANGE},
+        # ),
         "base_com": EventTermCfg(
             mode="startup",
             func=dr.body_com_offset,
@@ -253,21 +253,21 @@ def _rewards() -> dict[str, RewardTermCfg]:
             weight=2.0,
             params={"command_name": TWIST_COMMAND_NAME, "std": math.sqrt(0.5)},
         ),
-        "feet_air_time": RewardTermCfg(
-            func=vel_mdp.feet_air_time,
-            weight=1.0,
-            params={
-                "sensor_name": "feet_ground_contact",
-                "threshold_min": 0.05,
-                "threshold_max": 0.5,
-                "command_name": TWIST_COMMAND_NAME,
-                "command_threshold": 0.1,
-            },
-        ),
-        "flat_orientation_l2": RewardTermCfg(
-            func=vel_mdp.flat_orientation_l2,
-            weight=-1.0,
-        ),
+        # "feet_air_time": RewardTermCfg(
+        #     func=vel_mdp.feet_air_time,
+        #     weight=1.0,
+        #     params={
+        #         "sensor_name": "feet_ground_contact",
+        #         "threshold_min": 0.05,
+        #         "threshold_max": 0.5,
+        #         "command_name": TWIST_COMMAND_NAME,
+        #         "command_threshold": 0.1,
+        #     },
+        # ),
+        # "flat_orientation_l2": RewardTermCfg(
+        #     func=vel_mdp.flat_orientation_l2,
+        #     weight=-1.0,
+        # ),
     }
 
 
@@ -299,6 +299,12 @@ def _curriculum() -> dict[str, CurriculumTermCfg]:
                         "lin_vel_x": (-0.4, 0.8),
                         "lin_vel_y": (-0.2, 0.2),
                         "ang_vel_z": (-1.0, 1.0),
+                    },
+                    {
+                        "step": 1200 * 24,
+                        "lin_vel_x": (-0.7, 1.5),
+                        "lin_vel_y": (-0.4, 0.4),
+                        "ang_vel_z": (-1.2, 1.2),
                     },
                 ],
             },

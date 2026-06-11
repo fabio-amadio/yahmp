@@ -316,13 +316,13 @@ def unitree_g1_yahmp_imitation_runner_cfg() -> YahmpImitationRunnerCfg:
             activation="elu",
             obs_normalization=True,
         ),
-        loss_weights=ImitationLossWeights(action=1.0, mm=0.1, reg=0.05, vq=1.0),
+        loss_weights=ImitationLossWeights(action=10.0, mm=1.0, reg=0.05, vq=1.0),
         trainer=ImitationTrainerCfg(
             lr=2e-4,
             grad_clip_norm=1.0,
             mm_warmup_steps=10_000,
-            mm_start=0.0,
-            mm_end=0.1,
+            mm_start=0.1,
+            mm_end=1.0,
         ),
         experiment_name="g1_yahmp_imitation",
         wandb_project="yahmp",
@@ -349,13 +349,7 @@ def unitree_g1_yahmp_locomotion_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg
             class_name="yahmp.rl.locomotion_policy:YahmpLocomotionActorModel",
             hidden_dims=(512, 512, 256, 128),
             activation="elu",
-            # P1/P2: the actor warm-starts proprio+history normalizer stats
-            # from an external checkpoint and pins the g_task slot to identity.
-            # See ``YahmpLocomotionActorModel`` for the full design rationale.
             obs_normalization=True,
-            # P3: high-level produces categorical RVQ-index logits. The actor
-            # ignores distribution_cfg (kept here for documentation) and always
-            # attaches MultiCategoricalDistribution sized from rvq_* fields.
             distribution_cfg=None,
         ),
         critic=RslRlModelCfg(

@@ -46,23 +46,23 @@ PUSH_VELOCITY_RANGE = {
 def _velocity_command_kwargs() -> dict[str, object]:
     """Default ranges + resampling for the omnidirectional walk command.
 
-    Ranges match the final curriculum stage. Targeting a paper-deployable
-    walk specialist trained on the AMASS+OMOMO walk subset (79 clips,
-    21.4 min). Dataset stats over moving frames (N=34433):
-      vx     p90=+1.03  p95=+1.13  p99=+1.31  m/s
-      vy     p90=+0.27  p95=+0.36  p99=+0.65  m/s
-      wz     p90=+1.18  p95=+1.58  p99=+2.60  rad/s
-      |v_xy| p90=+1.09  p95=+1.19  p99=+1.40  m/s
+    Strongly in-distribution range — diagnostic run testing whether keeping
+    velocity commands inside the densest part of the AMASS+OMOMO walk
+    distribution is enough to produce a natural gait without explicit
+    reward shaping (the method's core claim).
 
-    Caps (deliberately walk-conservative for deployment):
-      - vx [-0.5, 1.5] m/s   covers p95 with margin
-      - vy [-0.4, 0.4] m/s   covers p95 (lateral steps in turning clips)
-      - ωz [-1.0, 1.0] rad/s deployment cap (covers ~77% of moving frames;
-        higher-yaw turning clips still teach the imitation prior — the
-        locomotion controller just won't command above 1.0)
+    Dataset stats over ALL 38,463 frames of the 79 clips (audit
+    `audit_velocity_distribution.py`):
+      vx     p25=+0.26  p50=+0.66  p75=+0.84  p95=+1.12  p99=+1.30 m/s
+      vy     p25=-0.09  p50=+0.01  p75=+0.12  p95=+0.34         m/s
+      wz     p25=-0.49  p50=+0.01  p75=+0.55  p95=+1.54         rad/s
+      Joint mass: ~57% of frames in vx≈+0.7 (any wz),
+                  ~11% above vx>+1.0.
 
-    resampling_time_range relaxed to (2.0, 4.0) vs LAFAN's (1.5, 3.0) since
-    walking commands are more stationary (no sprint-to-turn whiplash).
+    Caps chosen well below p50 to live inside the dataset's modal region:
+      - vx [-0.1, 0.5] m/s   below p50 (0.66), excludes fast-walk tail
+      - vy [-0.15, 0.15] m/s p25–p75 envelope, excludes lateral outliers
+      - ωz [-0.4, 0.4] rad/s about p70, excludes high-yaw turning tail
     """
     return {
         "entity_name": "robot",
@@ -72,9 +72,9 @@ def _velocity_command_kwargs() -> dict[str, object]:
         "heading_command": False,
         "debug_vis": True,
         "ranges": UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-0.5, 1.5),
-            lin_vel_y=(-0.4, 0.4),
-            ang_vel_z=(-1.0, 1.0),
+            lin_vel_x=(-0.1, 0.5),
+            lin_vel_y=(-0.15, 0.15),
+            ang_vel_z=(-0.4, 0.4),
         ),
     }
 
@@ -226,13 +226,21 @@ def _events() -> dict[str, EventTermCfg]:
 
 
 def _rewards() -> dict[str, RewardTermCfg]:
-    """Minimal task reward: velocity tracking only.
+    """Velocity tracking + two-term minimal gait shaping.
 
-    The hierarchical policy reuses a frozen action_decoder + RVQ codebook
-    trained on expert demos, so motion naturalness (smoothness, foot
-    clearance, slip-free contacts, upright posture) is already encoded in
-    the decoder. Shaping those properties from the reward would fight the
-    pretrained manifold. Falling is handled by the `fell_over` termination.
+    The categorical converges on a degenerate "tip-toe + forward-lean"
+    attractor that satisfies velocity tracking with minimum action
+    variance. Two-term minimum surgical shaping addresses the two
+    visible symptoms:
+
+      - ``feet_air_time``: rewards step durations in [0.05, 0.5]s.
+        Breaks the short-stride tip-toe attractor.
+      - ``flat_orientation_l2``: penalises non-upright base orientation.
+        Fixes the forward-lean compensation pattern.
+
+    Task weights kept at 2.0 to measure the marginal effect of shaping
+    without confounding by a rescale. Other naturalness properties
+    (arm swing, smoothness) left to the prior.
     """
     return {
         "track_linear_velocity": RewardTermCfg(
@@ -244,6 +252,21 @@ def _rewards() -> dict[str, RewardTermCfg]:
             func=vel_mdp.track_angular_velocity,
             weight=2.0,
             params={"command_name": TWIST_COMMAND_NAME, "std": math.sqrt(0.5)},
+        ),
+        "feet_air_time": RewardTermCfg(
+            func=vel_mdp.feet_air_time,
+            weight=1.0,
+            params={
+                "sensor_name": "feet_ground_contact",
+                "threshold_min": 0.05,
+                "threshold_max": 0.5,
+                "command_name": TWIST_COMMAND_NAME,
+                "command_threshold": 0.1,
+            },
+        ),
+        "flat_orientation_l2": RewardTermCfg(
+            func=vel_mdp.flat_orientation_l2,
+            weight=-1.0,
         ),
     }
 
@@ -259,26 +282,6 @@ def _terminations() -> dict[str, TerminationTermCfg]:
 
 
 def _curriculum() -> dict[str, CurriculumTermCfg]:
-    """Two-stage curriculum for the AMASS+OMOMO walk subset.
-
-    Walk-only distribution is narrow (vx p95=1.13 m/s, wz p95=1.58 rad/s)
-    so the policy has very little new to learn between stages — a long
-    Stage 1 wastes iters that could be spent at full range. We use a
-    short warm-up (vx [-0.3, 0.8], ωz [-0.5, 0.5]) only to bootstrap
-    balance under low-command stress, then open immediately to the
-    deployment range.
-
-    Stages:
-      1. **Warm-up balance** — slow forward dominant (vx [-0.3, 0.8])
-         and gentle yaw (±0.5 rad/s). Just enough to find a stable
-         walking gait before being asked to track wider commands.
-      2. **Full walk range** — deployment range (vx [-0.5, 1.5],
-         ωz [-1.0, 1.0]). Same caps as the velocity command default.
-
-    Iteration budget: tuned for fast convergence on a narrow task.
-      stage 1: 0 → 750 iters
-      stage 2: 750 → end
-    """
     return {
         "command_vel": CurriculumTermCfg(
             func=vel_mdp.commands_vel,
@@ -287,14 +290,14 @@ def _curriculum() -> dict[str, CurriculumTermCfg]:
                 "velocity_stages": [
                     {
                         "step": 0,
-                        "lin_vel_x": (-0.3, 0.8),
-                        "lin_vel_y": (-0.2, 0.2),
+                        "lin_vel_x": (0.0, 0.5),
+                        "lin_vel_y": (-0.08, 0.08),
                         "ang_vel_z": (-0.5, 0.5),
                     },
                     {
-                        "step": 750 * 24,
-                        "lin_vel_x": (-0.5, 1.5),
-                        "lin_vel_y": (-0.4, 0.4),
+                        "step": 500 * 24,
+                        "lin_vel_x": (-0.4, 0.8),
+                        "lin_vel_y": (-0.2, 0.2),
                         "ang_vel_z": (-1.0, 1.0),
                     },
                 ],

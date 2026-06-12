@@ -44,26 +44,6 @@ PUSH_VELOCITY_RANGE = {
 
 
 def _velocity_command_kwargs() -> dict[str, object]:
-    """Default ranges + resampling for the omnidirectional walk command.
-
-    Strongly in-distribution range — diagnostic run testing whether keeping
-    velocity commands inside the densest part of the AMASS+OMOMO walk
-    distribution is enough to produce a natural gait without explicit
-    reward shaping (the method's core claim).
-
-    Dataset stats over ALL 38,463 frames of the 79 clips (audit
-    `audit_velocity_distribution.py`):
-      vx     p25=+0.26  p50=+0.66  p75=+0.84  p95=+1.12  p99=+1.30 m/s
-      vy     p25=-0.09  p50=+0.01  p75=+0.12  p95=+0.34         m/s
-      wz     p25=-0.49  p50=+0.01  p75=+0.55  p95=+1.54         rad/s
-      Joint mass: ~57% of frames in vx≈+0.7 (any wz),
-                  ~11% above vx>+1.0.
-
-    Caps chosen well below p50 to live inside the dataset's modal region:
-      - vx [-0.1, 0.5] m/s   below p50 (0.66), excludes fast-walk tail
-      - vy [-0.15, 0.15] m/s p25–p75 envelope, excludes lateral outliers
-      - ωz [-0.4, 0.4] rad/s about p70, excludes high-yaw turning tail
-    """
     return {
         "entity_name": "robot",
         "resampling_time_range": (2.0, 4.0),
@@ -296,16 +276,22 @@ def _curriculum() -> dict[str, CurriculumTermCfg]:
                     },
                     {
                         "step": 500 * 24,
-                        "lin_vel_x": (-0.4, 0.8),
+                        "lin_vel_x": (-0.2, 0.8),
                         "lin_vel_y": (-0.2, 0.2),
                         "ang_vel_z": (-1.0, 1.0),
                     },
                     {
-                        "step": 1200 * 24,
-                        "lin_vel_x": (-0.7, 1.5),
+                        "step": 1000 * 24,
+                        "lin_vel_x": (-0.5, 1.5),
                         "lin_vel_y": (-0.4, 0.4),
                         "ang_vel_z": (-1.2, 1.2),
                     },
+                    # {
+                    #     "step": 3500 * 24,
+                    #     "lin_vel_x": (-0.6, 1.5),
+                    #     "lin_vel_y": (-0.4, 0.4),
+                    #     "ang_vel_z": (-1.2, 1.2),
+                    # },
                 ],
             },
         ),

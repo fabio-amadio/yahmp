@@ -9,6 +9,9 @@ from yahmp.rl import (
   YahmpStudentOnPolicyRunnerCfg,
 )
 
+DEFAULT_MAX_ITERATIONS = 20_000
+WANDB_PROJECT = "yahmp-hum2026"
+
 
 def _wandb_tags(*extra: str) -> tuple[str, ...]:
   return extra
@@ -49,11 +52,11 @@ def unitree_g1_yahmp_teacher_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
       max_grad_norm=1.0,
     ),
     experiment_name="g1_yahmp_teacher",
-    wandb_project="yahmp",
+    wandb_project=WANDB_PROJECT,
     wandb_tags=_wandb_tags("yahmp", "teacher", "privileged"),
     save_interval=500,
     num_steps_per_env=24,
-    max_iterations=30_000,
+    max_iterations=DEFAULT_MAX_ITERATIONS,
     obs_groups={"actor": ("actor",), "critic": ("critic",)},
   )
 
@@ -93,11 +96,11 @@ def unitree_g1_yahmp_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
       max_grad_norm=1.0,
     ),
     experiment_name="g1_yahmp",
-    wandb_project="yahmp",
+    wandb_project=WANDB_PROJECT,
     wandb_tags=_wandb_tags("yahmp", "history_encoder", "residual_actions"),
     save_interval=500,
     num_steps_per_env=24,
-    max_iterations=30_000,
+    max_iterations=DEFAULT_MAX_ITERATIONS,
     obs_groups={"actor": ("actor",), "critic": ("critic",)},
   )
 
@@ -187,13 +190,13 @@ def unitree_g1_yahmp_future_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
       max_grad_norm=1.0,
     ),
     experiment_name="g1_yahmp_future",
-    wandb_project="yahmp",
+    wandb_project=WANDB_PROJECT,
     wandb_tags=_wandb_tags(
       "yahmp", "future_encoder", "history_encoder", "residual_actions"
     ),
     save_interval=500,
     num_steps_per_env=24,
-    max_iterations=30_000,
+    max_iterations=DEFAULT_MAX_ITERATIONS,
     obs_groups={"actor": ("actor",), "critic": ("critic",)},
   )
 
@@ -239,11 +242,11 @@ def unitree_g1_yahmp_student_action_matching_rl_runner_cfg() -> (
       bc_loss_type="mse",
     ),
     experiment_name="g1_yahmp_student_action_matching_rl",
-    wandb_project="yahmp",
+    wandb_project=WANDB_PROJECT,
     wandb_tags=_wandb_tags("yahmp", "student", "action_matching_rl"),
     save_interval=500,
     num_steps_per_env=24,
-    max_iterations=20_000,
+    max_iterations=DEFAULT_MAX_ITERATIONS,
     obs_groups={
       "actor": ("actor",),
       "critic": ("critic",),
@@ -292,11 +295,11 @@ def unitree_g1_yahmp_student_kl_matching_rl_runner_cfg() -> (
       kl_coef_anneal_iters=60_000,
     ),
     experiment_name="g1_yahmp_student_kl_matching_rl",
-    wandb_project="yahmp",
+    wandb_project=WANDB_PROJECT,
     wandb_tags=_wandb_tags("yahmp", "student", "kl_matching_rl"),
     save_interval=500,
     num_steps_per_env=24,
-    max_iterations=20_000,
+    max_iterations=DEFAULT_MAX_ITERATIONS,
     obs_groups={
       "actor": ("actor",),
       "critic": ("critic",),

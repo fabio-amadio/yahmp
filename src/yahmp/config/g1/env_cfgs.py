@@ -217,6 +217,13 @@ def unitree_g1_yahmp_env_cfg(
   return _apply_unitree_g1_overrides(make_env_cfg(), play=play)
 
 
+def unitree_g1_yahmp_history20_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Create the Unitree G1 YAHMP configuration with 20 history steps."""
+  return _apply_unitree_g1_overrides(make_env_cfg(history_length=20), play=play)
+
+
 def unitree_g1_yahmp_future_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:

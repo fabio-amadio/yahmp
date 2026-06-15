@@ -131,12 +131,14 @@ def _current_motion_term() -> ObservationTermCfg:
   )
 
 
-def _history_term(*, include_privileged: bool = False) -> ObservationTermCfg:
+def _history_term(
+  *, history_length: int = HISTORY_LENGTH, include_privileged: bool = False
+) -> ObservationTermCfg:
   return ObservationTermCfg(
     func=mdp.YahmpObservationHistory,
     params={
       "command_name": "motion",
-      "history_length": HISTORY_LENGTH,
+      "history_length": history_length,
       "include_privileged": include_privileged,
     },
   )
@@ -352,18 +354,18 @@ def _terminations() -> dict[str, TerminationTermCfg]:
   }
 
 
-def make_env_cfg() -> ManagerBasedRlEnvCfg:
+def make_env_cfg(history_length: int = HISTORY_LENGTH) -> ManagerBasedRlEnvCfg:
   """Create the YAHMP direct-PPO task template with history encoding only."""
   actor_terms = {
     "command": _current_motion_term(),
     **_proprio_policy_terms(),
-    "history": _history_term(),
+    "history": _history_term(history_length=history_length),
   }
 
   critic_terms = {
     "command": _current_motion_term(),
     **_proprio_critic_terms(),
-    "policy_history": _history_term(),
+    "policy_history": _history_term(history_length=history_length),
     **_privileged_terms(),
   }
 

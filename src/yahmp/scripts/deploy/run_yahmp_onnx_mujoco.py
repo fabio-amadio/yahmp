@@ -32,6 +32,7 @@ def _yahmp_task_ids() -> tuple[str, ...]:
   preferred = (
     "Mjlab-YAHMP-Unitree-G1",
     "Mjlab-YAHMP-History20-Unitree-G1",
+    "Mjlab-YAHMP-NoHistory-Unitree-G1",
     "Mjlab-YAHMP-NoResidual-Unitree-G1",
     "Mjlab-YAHMP-QOnly-Unitree-G1",
     "Mjlab-YAHMP-StiffPD-Unitree-G1",

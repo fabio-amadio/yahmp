@@ -379,20 +379,23 @@ def make_env_cfg(
   history_length: int = HISTORY_LENGTH,
   command_type: str = "q_qdot",
   action_type: str = "residual",
+  include_history: bool = True,
 ) -> ManagerBasedRlEnvCfg:
   """Create the YAHMP direct-PPO task template with history encoding only."""
   actor_terms = {
     "command": _current_motion_term(),
     **_proprio_policy_terms(),
-    "history": _history_term(history_length=history_length),
   }
+  if include_history:
+    actor_terms["history"] = _history_term(history_length=history_length)
 
   critic_terms = {
     "command": _current_motion_term(),
     **_proprio_critic_terms(),
-    "policy_history": _history_term(history_length=history_length),
     **_privileged_terms(),
   }
+  if include_history:
+    critic_terms["policy_history"] = _history_term(history_length=history_length)
 
   observations = {
     "actor": ObservationGroupCfg(

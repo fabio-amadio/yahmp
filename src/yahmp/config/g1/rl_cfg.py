@@ -111,6 +111,15 @@ def unitree_g1_yahmp_history20_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
   return cfg
 
 
+def unitree_g1_yahmp_no_history_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
+  cfg = unitree_g1_yahmp_ppo_runner_cfg()
+  cfg.actor.class_name = "rsl_rl.models:MLPModel"
+  cfg.critic.class_name = "rsl_rl.models:MLPModel"
+  cfg.experiment_name = "g1_yahmp_no_history"
+  cfg.wandb_tags = _wandb_tags("yahmp", "no_history", "residual_actions")
+  return cfg
+
+
 def unitree_g1_yahmp_no_residual_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
   cfg = unitree_g1_yahmp_ppo_runner_cfg()
   cfg.experiment_name = "g1_yahmp_no_residual"

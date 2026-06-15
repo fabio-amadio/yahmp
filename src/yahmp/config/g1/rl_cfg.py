@@ -111,6 +111,15 @@ def unitree_g1_yahmp_history20_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
   return cfg
 
 
+def unitree_g1_yahmp_q_only_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
+  cfg = unitree_g1_yahmp_ppo_runner_cfg()
+  cfg.experiment_name = "g1_yahmp_q_only"
+  cfg.wandb_tags = _wandb_tags(
+    "yahmp", "history_encoder", "q_only_command", "residual_actions"
+  )
+  return cfg
+
+
 def unitree_g1_yahmp_future_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
   return YahmpOnPolicyRunnerCfg(
     seed=1,

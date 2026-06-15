@@ -32,6 +32,7 @@ def _yahmp_task_ids() -> tuple[str, ...]:
   preferred = (
     "Mjlab-YAHMP-Unitree-G1",
     "Mjlab-YAHMP-History20-Unitree-G1",
+    "Mjlab-YAHMP-QOnly-Unitree-G1",
     "Mjlab-YAHMP-Future-Unitree-G1",
   )
   available = set(list_tasks())
@@ -174,21 +175,19 @@ class PolicySpec:
       )
     if self.motion_command_class not in {
       "JointRefAnchorRpMotionCommand",
+      "JointRefOnlyAnchorRpMotionCommand",
       "FutureJointRefAnchorRpMotionCommand",
     }:
       raise NotImplementedError(
         "This script supports only YAHMP JointRefAnchorRp-derived commands, got "
         f"`{self.motion_command_class}`."
       )
-    expected_command_dim = self.motion_command_num_steps * (
-      2 * len(self.joint_names) + 6
-    )
-    if self.motion_command_dim != expected_command_dim:
+    expected_step_dims = {len(self.joint_names) + 6, 2 * len(self.joint_names) + 6}
+    if self.motion_command_step_dim not in expected_step_dims:
       raise ValueError(
-        "This script supports only JointRefAnchorRp-style commands with per-step "
-        "dim = 2 * num_joints + 6. Got motion_command_dim="
-        f"{self.motion_command_dim}, num_steps={self.motion_command_num_steps}, "
-        f"num_joints={len(self.joint_names)}."
+        "This script supports only JointRefAnchorRp-style commands with per-step dim "
+        f"`num_joints + 6` or `2 * num_joints + 6`. Got step_dim="
+        f"{self.motion_command_step_dim}, num_joints={len(self.joint_names)}."
       )
     if self.action_semantics not in {"residual_joint_position", "joint_position"}:
       raise NotImplementedError(
@@ -560,26 +559,34 @@ def _command_value(
   time_s: float,
   frame: MotionFrame,
 ) -> np.ndarray:
+  include_joint_vel = spec.motion_command_step_dim == 2 * len(spec.joint_names) + 6
   if spec.motion_command_num_steps <= 1:
-    return _single_command_step_value(frame)
+    return _single_command_step_value(frame, include_joint_vel=include_joint_vel)
 
   frames = []
   for step_offset in spec.motion_command_step_offsets:
     future_time_s = time_s + float(step_offset) * spec.control_dt
-    frames.append(_single_command_step_value(clip.sample(future_time_s)))
+    frames.append(
+      _single_command_step_value(
+        clip.sample(future_time_s), include_joint_vel=include_joint_vel
+      )
+    )
   return np.concatenate(frames).astype(np.float32)
 
 
-def _single_command_step_value(frame: MotionFrame) -> np.ndarray:
+def _single_command_step_value(
+  frame: MotionFrame, *, include_joint_vel: bool
+) -> np.ndarray:
   anchor_lin_vel_b = _quat_rotate_inverse(frame.root_quat_w, frame.root_lin_vel_w)
   anchor_ang_vel_b = _quat_rotate_inverse(frame.root_quat_w, frame.root_ang_vel_w)
   parts = [
     frame.joint_pos,
-    frame.joint_vel,
     anchor_lin_vel_b[:2],
     anchor_ang_vel_b[2:3],
     frame.root_pos_w[2:3],
   ]
+  if include_joint_vel:
+    parts.insert(1, frame.joint_vel)
   roll, pitch, _ = _quat_roll_pitch_yaw(frame.root_quat_w)
   parts.extend(
     (

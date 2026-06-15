@@ -17,7 +17,10 @@ from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
 from yahmp import mdp
-from yahmp.mdp import JointRefAnchorRpMotionCommandCfg
+from yahmp.mdp import (
+  JointRefAnchorRpMotionCommandCfg,
+  JointRefOnlyAnchorRpMotionCommandCfg,
+)
 
 HISTORY_LENGTH = 10
 
@@ -354,7 +357,18 @@ def _terminations() -> dict[str, TerminationTermCfg]:
   }
 
 
-def make_env_cfg(history_length: int = HISTORY_LENGTH) -> ManagerBasedRlEnvCfg:
+def _motion_command(command_type: str) -> CommandTermCfg:
+  if command_type == "q_qdot":
+    return JointRefAnchorRpMotionCommandCfg(**_motion_command_kwargs())
+  if command_type == "q_only":
+    return JointRefOnlyAnchorRpMotionCommandCfg(**_motion_command_kwargs())
+  raise ValueError(f"Unsupported YAHMP motion command type: {command_type}")
+
+
+def make_env_cfg(
+  history_length: int = HISTORY_LENGTH,
+  command_type: str = "q_qdot",
+) -> ManagerBasedRlEnvCfg:
   """Create the YAHMP direct-PPO task template with history encoding only."""
   actor_terms = {
     "command": _current_motion_term(),
@@ -382,9 +396,7 @@ def make_env_cfg(history_length: int = HISTORY_LENGTH) -> ManagerBasedRlEnvCfg:
     ),
   }
 
-  commands: dict[str, CommandTermCfg] = {
-    "motion": JointRefAnchorRpMotionCommandCfg(**_motion_command_kwargs())
-  }
+  commands: dict[str, CommandTermCfg] = {"motion": _motion_command(command_type)}
 
   return ManagerBasedRlEnvCfg(
     scene=SceneCfg(terrain=TerrainEntityCfg(terrain_type="plane"), num_envs=1),

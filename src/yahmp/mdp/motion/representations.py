@@ -38,6 +38,30 @@ def joint_ref_anchor_rp_representation(
   )
 
 
+def joint_ref_only_anchor_rp_representation(
+  joint_pos: torch.Tensor,
+  anchor_pos_w: torch.Tensor,
+  anchor_quat_w: torch.Tensor,
+  anchor_lin_vel_w: torch.Tensor,
+  anchor_ang_vel_w: torch.Tensor,
+) -> torch.Tensor:
+  """Serialize current joint refs without joint velocities."""
+  anchor_lin_vel_b = quat_apply_inverse(anchor_quat_w, anchor_lin_vel_w)
+  anchor_ang_vel_b = quat_apply_inverse(anchor_quat_w, anchor_ang_vel_w)
+  roll, pitch, _ = _quat_roll_pitch_yaw(anchor_quat_w)
+  return torch.cat(
+    (
+      joint_pos,
+      anchor_lin_vel_b[..., :2],
+      anchor_ang_vel_b[..., 2:3],
+      anchor_pos_w[..., 2:3],
+      roll[..., None],
+      pitch[..., None],
+    ),
+    dim=-1,
+  )
+
+
 def future_joint_ref_anchor_rp_representation(frames: MotionFrameBatch) -> torch.Tensor:
   """Serialize future joint refs with anchor motion terms and roll/pitch."""
   anchor_lin_vel_b = quat_apply_inverse(frames.anchor_quat_w, frames.anchor_lin_vel_w)

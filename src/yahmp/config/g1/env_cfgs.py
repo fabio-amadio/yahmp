@@ -17,6 +17,7 @@ from yahmp.mdp import (
   FutureJointRefAnchorRpMotionCommandCfg,
   HandBaseMotionCommandCfg,
   JointRefAnchorRpMotionCommandCfg,
+  JointRefOnlyAnchorRpMotionCommandCfg,
   TeacherStudentJointRefAnchorRpMotionCommandCfg,
 )
 from yahmp.yahmp_env_cfg import make_env_cfg
@@ -127,6 +128,7 @@ def _apply_unitree_g1_overrides(
     (
       FutureJointRefAnchorRpMotionCommandCfg,
       JointRefAnchorRpMotionCommandCfg,
+      JointRefOnlyAnchorRpMotionCommandCfg,
       TeacherStudentJointRefAnchorRpMotionCommandCfg,
       HandBaseMotionCommandCfg,
     ),
@@ -222,6 +224,13 @@ def unitree_g1_yahmp_history20_env_cfg(
 ) -> ManagerBasedRlEnvCfg:
   """Create the Unitree G1 YAHMP configuration with 20 history steps."""
   return _apply_unitree_g1_overrides(make_env_cfg(history_length=20), play=play)
+
+
+def unitree_g1_yahmp_q_only_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Create the Unitree G1 YAHMP configuration without joint-velocity commands."""
+  return _apply_unitree_g1_overrides(make_env_cfg(command_type="q_only"), play=play)
 
 
 def unitree_g1_yahmp_future_env_cfg(

@@ -1,4 +1,4 @@
 root_path: ../../../../assets/motions
 subfolders:
-  - name: g1_omomo_amass_clean
+  - name: g1_omomo_amass_clean_train
     weight: 1.0

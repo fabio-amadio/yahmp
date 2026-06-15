@@ -399,6 +399,16 @@ def unitree_g1_yahmp_q_only_env_cfg(
   return _apply_unitree_g1_overrides(make_env_cfg(command_type="q_only"), play=play)
 
 
+def unitree_g1_yahmp_q_only_no_history_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Create the q-only Unitree G1 YAHMP configuration without observation history."""
+  return _apply_unitree_g1_overrides(
+    make_env_cfg(command_type="q_only", include_history=False),
+    play=play,
+  )
+
+
 def unitree_g1_yahmp_future_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:

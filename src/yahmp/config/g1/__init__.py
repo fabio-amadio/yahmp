@@ -9,6 +9,7 @@ from .env_cfgs import (
   unitree_g1_yahmp_no_history_env_cfg,
   unitree_g1_yahmp_no_residual_env_cfg,
   unitree_g1_yahmp_q_only_env_cfg,
+  unitree_g1_yahmp_q_only_no_history_env_cfg,
   unitree_g1_yahmp_stiff_pd_env_cfg,
   unitree_g1_yahmp_student_env_cfg,
   unitree_g1_yahmp_teacher_env_cfg,
@@ -20,6 +21,7 @@ from .rl_cfg import (
   unitree_g1_yahmp_no_residual_ppo_runner_cfg,
   unitree_g1_yahmp_ppo_runner_cfg,
   unitree_g1_yahmp_q_only_ppo_runner_cfg,
+  unitree_g1_yahmp_q_only_no_history_ppo_runner_cfg,
   unitree_g1_yahmp_stiff_pd_ppo_runner_cfg,
   unitree_g1_yahmp_student_action_matching_rl_runner_cfg,
   unitree_g1_yahmp_student_kl_matching_rl_runner_cfg,
@@ -63,6 +65,14 @@ register_mjlab_task(
   env_cfg=unitree_g1_yahmp_q_only_env_cfg(),
   play_env_cfg=unitree_g1_yahmp_q_only_env_cfg(play=True),
   rl_cfg=unitree_g1_yahmp_q_only_ppo_runner_cfg(),
+  runner_cls=YahmpOnPolicyRunner,
+)
+
+register_mjlab_task(
+  task_id="Mjlab-YAHMP-QOnly-NoHistory-Unitree-G1",
+  env_cfg=unitree_g1_yahmp_q_only_no_history_env_cfg(),
+  play_env_cfg=unitree_g1_yahmp_q_only_no_history_env_cfg(play=True),
+  rl_cfg=unitree_g1_yahmp_q_only_no_history_ppo_runner_cfg(),
   runner_cls=YahmpOnPolicyRunner,
 )
 

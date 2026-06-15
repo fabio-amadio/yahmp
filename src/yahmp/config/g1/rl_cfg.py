@@ -111,6 +111,22 @@ def unitree_g1_yahmp_history20_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
   return cfg
 
 
+def unitree_g1_yahmp_no_residual_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
+  cfg = unitree_g1_yahmp_ppo_runner_cfg()
+  cfg.experiment_name = "g1_yahmp_no_residual"
+  cfg.wandb_tags = _wandb_tags("yahmp", "history_encoder", "direct_actions")
+  return cfg
+
+
+def unitree_g1_yahmp_stiff_pd_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
+  cfg = unitree_g1_yahmp_ppo_runner_cfg()
+  cfg.experiment_name = "g1_yahmp_stiff_pd"
+  cfg.wandb_tags = _wandb_tags(
+    "yahmp", "history_encoder", "residual_actions", "stiff_pd"
+  )
+  return cfg
+
+
 def unitree_g1_yahmp_q_only_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
   cfg = unitree_g1_yahmp_ppo_runner_cfg()
   cfg.experiment_name = "g1_yahmp_q_only"

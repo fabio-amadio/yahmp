@@ -1,9 +1,10 @@
 """Unitree G1 YAHMP environment configurations."""
 
 import math
+import re
 from pathlib import Path
 
-from mjlab.actuator import DelayedActuatorCfg
+from mjlab.actuator import BuiltinPositionActuatorCfg, DelayedActuatorCfg
 from mjlab.asset_zoo.robots import G1_ACTION_SCALE, get_g1_robot_cfg
 from mjlab.asset_zoo.robots.unitree_g1.g1_constants import (
   FULL_COLLISION_WITHOUT_SELF,
@@ -62,6 +63,102 @@ G1_COMPARISON_KEY_BODY_NAMES = (
   "right_wrist_yaw_link",
 )
 
+TWIST2_G1_JOINT_NAMES = (
+  "left_hip_pitch_joint",
+  "left_hip_roll_joint",
+  "left_hip_yaw_joint",
+  "left_knee_joint",
+  "left_ankle_pitch_joint",
+  "left_ankle_roll_joint",
+  "right_hip_pitch_joint",
+  "right_hip_roll_joint",
+  "right_hip_yaw_joint",
+  "right_knee_joint",
+  "right_ankle_pitch_joint",
+  "right_ankle_roll_joint",
+  "waist_yaw_joint",
+  "waist_roll_joint",
+  "waist_pitch_joint",
+  "left_shoulder_pitch_joint",
+  "left_shoulder_roll_joint",
+  "left_shoulder_yaw_joint",
+  "left_elbow_joint",
+  "left_wrist_roll_joint",
+  "left_wrist_pitch_joint",
+  "left_wrist_yaw_joint",
+  "right_shoulder_pitch_joint",
+  "right_shoulder_roll_joint",
+  "right_shoulder_yaw_joint",
+  "right_elbow_joint",
+  "right_wrist_roll_joint",
+  "right_wrist_pitch_joint",
+  "right_wrist_yaw_joint",
+)
+
+TWIST2_SIM2SIM_STIFFNESS = (
+  100.0,
+  100.0,
+  100.0,
+  150.0,
+  40.0,
+  40.0,
+  100.0,
+  100.0,
+  100.0,
+  150.0,
+  40.0,
+  40.0,
+  150.0,
+  150.0,
+  150.0,
+  40.0,
+  40.0,
+  40.0,
+  40.0,
+  4.0,
+  4.0,
+  4.0,
+  40.0,
+  40.0,
+  40.0,
+  40.0,
+  4.0,
+  4.0,
+  4.0,
+)
+
+TWIST2_SIM2SIM_DAMPING = (
+  2.0,
+  2.0,
+  2.0,
+  4.0,
+  2.0,
+  2.0,
+  2.0,
+  2.0,
+  2.0,
+  4.0,
+  2.0,
+  2.0,
+  4.0,
+  4.0,
+  4.0,
+  5.0,
+  5.0,
+  5.0,
+  5.0,
+  0.2,
+  0.2,
+  0.2,
+  5.0,
+  5.0,
+  5.0,
+  5.0,
+  0.2,
+  0.2,
+  0.2,
+)
+
 
 def _make_g1_delayed_actuators(
   base_actuators: tuple[DelayedActuatorCfg, ...],
@@ -78,17 +175,58 @@ def _make_g1_delayed_actuators(
   )
 
 
+def _base_actuator_for_joint(
+  joint_name: str,
+  base_actuators: tuple[BuiltinPositionActuatorCfg, ...],
+) -> BuiltinPositionActuatorCfg:
+  for actuator_cfg in base_actuators:
+    if any(re.fullmatch(expr, joint_name) for expr in actuator_cfg.target_names_expr):
+      return actuator_cfg
+  raise ValueError(f"No Unitree G1 base actuator config matches joint `{joint_name}`.")
+
+
+def _make_twist2_sim2sim_actuators(
+  base_actuators: tuple[BuiltinPositionActuatorCfg, ...],
+) -> tuple[BuiltinPositionActuatorCfg, ...]:
+  return tuple(
+    BuiltinPositionActuatorCfg(
+      target_names_expr=(joint_name,),
+      transmission_type=base_cfg.transmission_type,
+      armature=base_cfg.armature,
+      frictionloss=base_cfg.frictionloss,
+      stiffness=stiffness,
+      damping=damping,
+      effort_limit=stiffness,
+    )
+    for joint_name, stiffness, damping in zip(
+      TWIST2_G1_JOINT_NAMES,
+      TWIST2_SIM2SIM_STIFFNESS,
+      TWIST2_SIM2SIM_DAMPING,
+      strict=True,
+    )
+    for base_cfg in (_base_actuator_for_joint(joint_name, base_actuators),)
+  )
+
+
 def _apply_unitree_g1_overrides(
   cfg: ManagerBasedRlEnvCfg,
   play: bool,
+  control_profile: str = "yahmp",
 ) -> ManagerBasedRlEnvCfg:
   """Apply Unitree G1 robot/sensor/DR overrides to a YAHMP task template."""
 
   robot_cfg = get_g1_robot_cfg()
   robot_cfg.collisions = (FULL_COLLISION_WITHOUT_SELF,)
   assert robot_cfg.articulation is not None
+  base_actuators = robot_cfg.articulation.actuators
+  if control_profile == "yahmp":
+    actuators = base_actuators
+  elif control_profile == "twist2-sim2sim":
+    actuators = _make_twist2_sim2sim_actuators(base_actuators)
+  else:
+    raise ValueError(f"Unsupported Unitree G1 control profile: {control_profile}")
   robot_cfg.articulation = EntityArticulationInfoCfg(
-    actuators=_make_g1_delayed_actuators(robot_cfg.articulation.actuators),
+    actuators=_make_g1_delayed_actuators(actuators),
     soft_joint_pos_limit_factor=robot_cfg.articulation.soft_joint_pos_limit_factor,
   )
   cfg.scene.entities = {"robot": robot_cfg}
@@ -120,7 +258,10 @@ def _apply_unitree_g1_overrides(
 
   joint_pos_action = cfg.actions["joint_pos"]
   assert isinstance(joint_pos_action, JointPositionActionCfg)
-  joint_pos_action.scale = dict(G1_ACTION_SCALE)
+  if control_profile == "twist2-sim2sim":
+    joint_pos_action.scale = 0.5
+  else:
+    joint_pos_action.scale = dict(G1_ACTION_SCALE)
 
   motion_cmd = cfg.commands["motion"]
   assert isinstance(
@@ -224,6 +365,24 @@ def unitree_g1_yahmp_history20_env_cfg(
 ) -> ManagerBasedRlEnvCfg:
   """Create the Unitree G1 YAHMP configuration with 20 history steps."""
   return _apply_unitree_g1_overrides(make_env_cfg(history_length=20), play=play)
+
+
+def unitree_g1_yahmp_no_residual_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Create the Unitree G1 YAHMP configuration with direct joint-position actions."""
+  return _apply_unitree_g1_overrides(make_env_cfg(action_type="direct"), play=play)
+
+
+def unitree_g1_yahmp_stiff_pd_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Create the Unitree G1 YAHMP configuration with stiff PD gains/action scales."""
+  return _apply_unitree_g1_overrides(
+    make_env_cfg(),
+    play=play,
+    control_profile="twist2-sim2sim",
+  )
 
 
 def unitree_g1_yahmp_q_only_env_cfg(

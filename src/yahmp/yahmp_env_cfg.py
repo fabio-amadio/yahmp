@@ -2,6 +2,7 @@
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import dr
+from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.action_manager import ActionTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
 from mjlab.managers.event_manager import EventTermCfg
@@ -147,16 +148,25 @@ def _history_term(
   )
 
 
-def _actions() -> dict[str, ActionTermCfg]:
-  return {
-    "joint_pos": mdp.ResidualJointPositionActionCfg(
+def _actions(action_type: str = "residual") -> dict[str, ActionTermCfg]:
+  if action_type == "residual":
+    action_cfg = mdp.ResidualJointPositionActionCfg(
       entity_name="robot",
       actuator_names=(".*",),
       scale=0.5,
       use_default_offset=False,
       command_name="motion",
     )
-  }
+  elif action_type == "direct":
+    action_cfg = JointPositionActionCfg(
+      entity_name="robot",
+      actuator_names=(".*",),
+      scale=0.5,
+      use_default_offset=True,
+    )
+  else:
+    raise ValueError(f"Unsupported YAHMP action type: {action_type}")
+  return {"joint_pos": action_cfg}
 
 
 def _events() -> dict[str, EventTermCfg]:
@@ -368,6 +378,7 @@ def _motion_command(command_type: str) -> CommandTermCfg:
 def make_env_cfg(
   history_length: int = HISTORY_LENGTH,
   command_type: str = "q_qdot",
+  action_type: str = "residual",
 ) -> ManagerBasedRlEnvCfg:
   """Create the YAHMP direct-PPO task template with history encoding only."""
   actor_terms = {
@@ -401,7 +412,7 @@ def make_env_cfg(
   return ManagerBasedRlEnvCfg(
     scene=SceneCfg(terrain=TerrainEntityCfg(terrain_type="plane"), num_envs=1),
     observations=observations,
-    actions=_actions(),
+    actions=_actions(action_type=action_type),
     commands=commands,
     events=_events(),
     curriculum={},

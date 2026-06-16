@@ -2,6 +2,7 @@
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import dr
+from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.action_manager import ActionTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
 from mjlab.managers.event_manager import EventTermCfg
@@ -15,7 +16,6 @@ from mjlab.tasks.tracking import mdp as tracking_mdp
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
-from mjlab.envs.mdp.actions import JointPositionActionCfg
 
 from yahmp import mdp
 from yahmp.mdp import JointRefAnchorRpMotionCommandCfg
@@ -173,35 +173,35 @@ def _events() -> dict[str, EventTermCfg]:
             interval_range_s=(1.0, 3.0),
             params={"velocity_range": PUSH_VELOCITY_RANGE},
         ),
-        "push_end_effector": EventTermCfg(
-            func=mdp.apply_torque_limited_body_force,
-            mode="step",
-            params={
-                "asset_cfg": SceneEntityCfg("robot", body_names=()),
-                "duration_s": (0.5, 2.0),
-                "cooldown_s": (0.0, 0.5),
-                "joint_names": (
-                    "waist_.*_joint",
-                    ".*_shoulder_.*_joint",
-                    ".*_elbow_joint",
-                    ".*_wrist_.*_joint",
-                ),
-                "feasible_force_fraction_range": (0.05, 0.25),
-                "max_force_magnitude": 20.0,
-                "force_ramp_time_fraction": 0.15,
-                "dirichlet_alpha": 1.0,
-                "subtract_commanded_torque_margin": True,
-                "use_current_qvel_for_inverse_dynamics": True,
-                "body_point_offset": None,
-                "randomize_application_point": False,
-                "application_point_delta_range": None,
-                "randomize_body": True,
-                "eps": 1.0e-6,
-                "debug_force_vis_enabled": True,
-                "debug_force_vis_scale": 0.015,
-                "debug_force_vis_width": 0.01,
-            },
-        ),
+        # "push_end_effector": EventTermCfg(
+        #     func=mdp.apply_torque_limited_body_force,
+        #     mode="step",
+        #     params={
+        #         "asset_cfg": SceneEntityCfg("robot", body_names=()),
+        #         "duration_s": (0.5, 2.0),
+        #         "cooldown_s": (0.0, 0.5),
+        #         "joint_names": (
+        #             "waist_.*_joint",
+        #             ".*_shoulder_.*_joint",
+        #             ".*_elbow_joint",
+        #             ".*_wrist_.*_joint",
+        #         ),
+        #         "feasible_force_fraction_range": (0.05, 0.25),
+        #         "max_force_magnitude": 20.0,
+        #         "force_ramp_time_fraction": 0.15,
+        #         "dirichlet_alpha": 1.0,
+        #         "subtract_commanded_torque_margin": True,
+        #         "use_current_qvel_for_inverse_dynamics": True,
+        #         "body_point_offset": None,
+        #         "randomize_application_point": False,
+        #         "application_point_delta_range": None,
+        #         "randomize_body": True,
+        #         "eps": 1.0e-6,
+        #         "debug_force_vis_enabled": True,
+        #         "debug_force_vis_scale": 0.015,
+        #         "debug_force_vis_width": 0.01,
+        #     },
+        # ),
         # "base_mass": EventTermCfg(
         #   mode="startup",
         #   func=dr.pseudo_inertia,
@@ -315,17 +315,17 @@ def _rewards() -> dict[str, RewardTermCfg]:
             },
         ),
         "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-1e-1),
+        "action_acc_l2": RewardTermCfg(func=mdp.action_acc_l2, weight=-5e-2),
         "joint_limit": RewardTermCfg(
             func=mdp.joint_pos_limits,
             weight=-10.0,
             params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
         ),
-        # Keep this commented out while using the no-self-collision G1 preset.
-        # "self_collisions": RewardTermCfg(
-        #   func=tracking_mdp.self_collision_cost,
-        #   weight=-10.0,
-        #   params={"sensor_name": "self_collision"},
-        # ),
+        "self_collisions": RewardTermCfg(
+            func=tracking_mdp.self_collision_cost,
+            weight=-10.0,
+            params={"sensor_name": "self_collision"},
+        ),
     }
 
 

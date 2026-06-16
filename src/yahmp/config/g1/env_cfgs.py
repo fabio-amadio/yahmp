@@ -3,13 +3,13 @@
 import math
 from pathlib import Path
 
-from mjlab.actuator import DelayedActuatorCfg
+# from mjlab.actuator import DelayedActuatorCfg
 from mjlab.asset_zoo.robots import G1_ACTION_SCALE, get_g1_robot_cfg
 from mjlab.asset_zoo.robots.unitree_g1.g1_constants import (
     FULL_COLLISION,
     HOME_KEYFRAME,
 )
-from mjlab.entity import EntityArticulationInfoCfg
+# from mjlab.entity import EntityArticulationInfoCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
@@ -22,7 +22,6 @@ from yahmp.mdp import (
 )
 from yahmp.yahmp_env_cfg import make_env_cfg, make_no_res_env_cfg
 from yahmp.yahmp_future_env_cfg import make_future_env_cfg
-from yahmp.yahmp_locomanip_env_cfg import make_locomanip_env_cfg
 from yahmp.yahmp_locomotion_env_cfg import make_locomotion_env_cfg
 from yahmp.yahmp_student_env_cfg import make_student_env_cfg
 from yahmp.yahmp_teacher_env_cfg import make_teacher_env_cfg
@@ -65,19 +64,19 @@ G1_COMPARISON_KEY_BODY_NAMES = (
 )
 
 
-def _make_g1_delayed_actuators(
-    base_actuators: tuple[DelayedActuatorCfg, ...],
-) -> tuple[DelayedActuatorCfg, ...]:
-    return tuple(
-        DelayedActuatorCfg(
-            base_cfg=actuator_cfg,
-            delay_target="position",
-            delay_min_lag=0,
-            delay_max_lag=4,
-            delay_hold_prob=1.0,
-        )
-        for actuator_cfg in base_actuators
-    )
+# def _make_g1_delayed_actuators(
+#     base_actuators: tuple[DelayedActuatorCfg, ...],
+# ) -> tuple[DelayedActuatorCfg, ...]:
+#     return tuple(
+#         DelayedActuatorCfg(
+#             base_cfg=actuator_cfg,
+#             delay_target="position",
+#             delay_min_lag=0,
+#             delay_max_lag=4,
+#             delay_hold_prob=1.0,
+#         )
+#         for actuator_cfg in base_actuators
+#     )
 
 
 def _apply_unitree_g1_overrides(
@@ -97,11 +96,11 @@ def _apply_unitree_g1_overrides(
     # this stage the policy is tracking a reference and a collision penalty
     # would fight the tracking objective.
     robot_cfg.collisions = (FULL_COLLISION,)
-    assert robot_cfg.articulation is not None
-    robot_cfg.articulation = EntityArticulationInfoCfg(
-        actuators=_make_g1_delayed_actuators(robot_cfg.articulation.actuators),
-        soft_joint_pos_limit_factor=robot_cfg.articulation.soft_joint_pos_limit_factor,
-    )
+    # assert robot_cfg.articulation is not None
+    # robot_cfg.articulation = EntityArticulationInfoCfg(
+    #     actuators=_make_g1_delayed_actuators(robot_cfg.articulation.actuators),
+    #     soft_joint_pos_limit_factor=robot_cfg.articulation.soft_joint_pos_limit_factor,
+    # )
     cfg.scene.entities = {"robot": robot_cfg}
 
     feet_ground_cfg = ContactSensorCfg(
@@ -117,20 +116,16 @@ def _apply_unitree_g1_overrides(
         num_slots=1,
         track_air_time=True,
     )
-    # Self-collision physics is on (contype=1 above), but we intentionally do
-    # NOT instantiate the self_collision sensor/penalty at the expert/imitation
-    # stage (see note above). Enable this block only if a penalty is ever
-    # wanted here (would also need cfg.sim.contact_sensor_maxmatch raised).
-    # self_collision_cfg = ContactSensorCfg(
-    #   name="self_collision",
-    #   primary=ContactMatch(mode="subtree", pattern="pelvis", entity="robot"),
-    #   secondary=ContactMatch(mode="subtree", pattern="pelvis", entity="robot"),
-    #   fields=("found",),
-    #   reduce="none",
-    #   num_slots=1,
-    # )
-    cfg.scene.sensors = (feet_ground_cfg,)
-    # cfg.scene.sensors = (feet_ground_cfg, self_collision_cfg)
+    self_collision_cfg = ContactSensorCfg(
+        name="self_collision",
+        primary=ContactMatch(mode="subtree", pattern="pelvis", entity="robot"),
+        secondary=ContactMatch(mode="subtree", pattern="pelvis", entity="robot"),
+        fields=("found",),
+        reduce="none",
+        num_slots=1,
+    )
+    cfg.scene.sensors = (feet_ground_cfg, self_collision_cfg)
+    cfg.sim.contact_sensor_maxmatch = 500
 
     joint_pos_action = cfg.actions["joint_pos"]
     assert isinstance(joint_pos_action, JointPositionActionCfg)
@@ -164,7 +159,8 @@ def _apply_unitree_g1_overrides(
     if "base_mass" in cfg.events:
         cfg.events["base_mass"].params["asset_cfg"].body_names = ("pelvis",)
         cfg.events["base_mass"].params["alpha_range"] = G1_PELVIS_ALPHA_RANGE
-    cfg.events["base_com"].params["asset_cfg"].body_names = ("torso_link",)
+    if "base_com" in cfg.events:
+        cfg.events["base_com"].params["asset_cfg"].body_names = ("torso_link",)
     if "push_end_effector" in cfg.events:
         cfg.events["push_end_effector"].params["asset_cfg"].body_names = (
             "left_wrist_yaw_link",
@@ -206,8 +202,8 @@ def _apply_unitree_g1_overrides(
         cfg.terminations.clear()
         if motion_expiration_termination is not None:
             cfg.terminations["motion_ref_expired"] = motion_expiration_termination
-        cfg.events.pop("push_robot", None)
-        cfg.events.pop("action_delay", None)
+        # cfg.events.pop("push_robot", None)
+        # cfg.events.pop("action_delay", None)
         # Uncomment to disable "push_end_effector" event.
         # cfg.events.pop("push_end_effector", None)
 
@@ -265,11 +261,11 @@ def _apply_unitree_g1_locomotion_overrides(
     # nothing. Required for the upper body to physically stop intersecting
     # the torso/legs and for the penalty to have a signal to learn from.
     robot_cfg.collisions = (FULL_COLLISION,)
-    assert robot_cfg.articulation is not None
-    robot_cfg.articulation = EntityArticulationInfoCfg(
-        actuators=_make_g1_delayed_actuators(robot_cfg.articulation.actuators),
-        soft_joint_pos_limit_factor=robot_cfg.articulation.soft_joint_pos_limit_factor,
-    )
+    # assert robot_cfg.articulation is not None
+    # robot_cfg.articulation = EntityArticulationInfoCfg(
+    #     actuators=_make_g1_delayed_actuators(robot_cfg.articulation.actuators),
+    #     soft_joint_pos_limit_factor=robot_cfg.articulation.soft_joint_pos_limit_factor,
+    # )
     cfg.scene.entities = {"robot": robot_cfg}
 
     feet_ground_cfg = ContactSensorCfg(
@@ -350,4 +346,6 @@ def unitree_g1_yahmp_locomanip_env_cfg(
     the ``self_collision`` sensor are reused as-is); only the command, rewards
     and curriculum differ, all defined in ``make_locomanip_env_cfg``.
     """
+    from yahmp.yahmp_locomanip_env_cfg import make_locomanip_env_cfg
+
     return _apply_unitree_g1_locomotion_overrides(make_locomanip_env_cfg(), play=play)

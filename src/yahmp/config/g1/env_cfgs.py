@@ -6,7 +6,7 @@ from pathlib import Path
 from mjlab.actuator import DelayedActuatorCfg
 from mjlab.asset_zoo.robots import G1_ACTION_SCALE, get_g1_robot_cfg
 from mjlab.asset_zoo.robots.unitree_g1.g1_constants import (
-    FULL_COLLISION_WITHOUT_SELF,
+    FULL_COLLISION,
     HOME_KEYFRAME,
 )
 from mjlab.entity import EntityArticulationInfoCfg
@@ -22,6 +22,7 @@ from yahmp.mdp import (
 )
 from yahmp.yahmp_env_cfg import make_env_cfg, make_no_res_env_cfg
 from yahmp.yahmp_future_env_cfg import make_future_env_cfg
+from yahmp.yahmp_locomanip_env_cfg import make_locomanip_env_cfg
 from yahmp.yahmp_locomotion_env_cfg import make_locomotion_env_cfg
 from yahmp.yahmp_student_env_cfg import make_student_env_cfg
 from yahmp.yahmp_teacher_env_cfg import make_teacher_env_cfg
@@ -86,7 +87,16 @@ def _apply_unitree_g1_overrides(
     """Apply Unitree G1 robot/sensor/DR overrides to a YAHMP task template."""
 
     robot_cfg = get_g1_robot_cfg()
-    robot_cfg.collisions = (FULL_COLLISION_WITHOUT_SELF,)
+    # Self-collisions enabled (contype=1) at the expert/imitation stage so the
+    # motion primitives are FORMED and DISTILLED under the same contact physics
+    # the locomotion/loco-manip task uses (which already runs FULL_COLLISION).
+    # Without this the codebook is built in a no-self-collision world and its
+    # arm/swing primitives interpenetrate; enabling collisions only downstream
+    # then makes the categorical avoid them (the "stranger gait" we saw). We
+    # add the physics only -- NO self-collision penalty reward here, since at
+    # this stage the policy is tracking a reference and a collision penalty
+    # would fight the tracking objective.
+    robot_cfg.collisions = (FULL_COLLISION,)
     assert robot_cfg.articulation is not None
     robot_cfg.articulation = EntityArticulationInfoCfg(
         actuators=_make_g1_delayed_actuators(robot_cfg.articulation.actuators),
@@ -107,7 +117,10 @@ def _apply_unitree_g1_overrides(
         num_slots=1,
         track_air_time=True,
     )
-    # Keep this commented out while using the no-self-collision G1 preset.
+    # Self-collision physics is on (contype=1 above), but we intentionally do
+    # NOT instantiate the self_collision sensor/penalty at the expert/imitation
+    # stage (see note above). Enable this block only if a penalty is ever
+    # wanted here (would also need cfg.sim.contact_sensor_maxmatch raised).
     # self_collision_cfg = ContactSensorCfg(
     #   name="self_collision",
     #   primary=ContactMatch(mode="subtree", pattern="pelvis", entity="robot"),
@@ -247,7 +260,11 @@ def _apply_unitree_g1_locomotion_overrides(
     """Apply Unitree G1 robot/sensor/DR overrides to the locomotion template."""
     robot_cfg = get_g1_robot_cfg()
     robot_cfg.init_state = HOME_KEYFRAME
-    robot_cfg.collisions = (FULL_COLLISION_WITHOUT_SELF,)
+    # Self-collisions enabled (contype=1) so MuJoCo computes robot-vs-robot
+    # contacts; without this the self_collision sensor/penalty below see
+    # nothing. Required for the upper body to physically stop intersecting
+    # the torso/legs and for the penalty to have a signal to learn from.
+    robot_cfg.collisions = (FULL_COLLISION,)
     assert robot_cfg.articulation is not None
     robot_cfg.articulation = EntityArticulationInfoCfg(
         actuators=_make_g1_delayed_actuators(robot_cfg.articulation.actuators),
@@ -268,7 +285,18 @@ def _apply_unitree_g1_locomotion_overrides(
         num_slots=1,
         track_air_time=True,
     )
-    cfg.scene.sensors = (feet_ground_cfg,)
+    self_collision_cfg = ContactSensorCfg(
+        name="self_collision",
+        primary=ContactMatch(mode="subtree", pattern="pelvis", entity="robot"),
+        secondary=ContactMatch(mode="subtree", pattern="pelvis", entity="robot"),
+        fields=("found",),
+        reduce="none",
+        num_slots=1,
+    )
+    cfg.scene.sensors = (feet_ground_cfg, self_collision_cfg)
+    # Self-collisions add many robot-vs-robot contact matches; raise the
+    # solver's match budget so the sensor isn't truncated (mjlab g1 default).
+    cfg.sim.contact_sensor_maxmatch = 500
 
     joint_pos_action = cfg.actions["joint_pos"]
     assert isinstance(joint_pos_action, JointPositionActionCfg)
@@ -311,3 +339,15 @@ def unitree_g1_yahmp_locomotion_env_cfg(
 ) -> ManagerBasedRlEnvCfg:
     """Create the Unitree G1 YAHMP omnidirectional locomotion configuration."""
     return _apply_unitree_g1_locomotion_overrides(make_locomotion_env_cfg(), play=play)
+
+
+def unitree_g1_yahmp_locomanip_env_cfg(
+    play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+    """Create the Unitree G1 YAHMP point-goal hand-reach configuration.
+
+    Shares the locomotion robot/sensor/DR overrides (FULL_COLLISION preset and
+    the ``self_collision`` sensor are reused as-is); only the command, rewards
+    and curriculum differ, all defined in ``make_locomanip_env_cfg``.
+    """
+    return _apply_unitree_g1_locomotion_overrides(make_locomanip_env_cfg(), play=play)

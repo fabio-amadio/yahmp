@@ -38,16 +38,22 @@ from mjlab.tasks.registry import (
 from mjlab.utils.torch import configure_torch_backends
 from mjlab.viewer import NativeMujocoViewer, ViserPlayViewer
 
-# ---------------------------------------------------------------------------
-# SCHEDULE — edit freely.
-#   (duration_s, vx [m/s], vy [m/s], wz [rad/s], label)
-# vx/vy/wz are expressed in body frame ("twist" command).
-# The schedule loops; total duration is reported at startup.
-# ---------------------------------------------------------------------------
 SCHEDULE: list[tuple[float, float, float, float, str]] = [
-    (5.0, 0.0, 0.0, 0.0, "standing"),
+    (10.0, 0.0, 0.0, 0.0, "standing"),
     (6.0, 0.8, 0.0, 0.0, "walk medio (cmd noto nel training)"),
-    (6.0, 1.5, 0.0, 0.0, "walk massimo (vx=1.5)"),
+    (10.0, 1.0, 0.0, 0.0, "walk (vx=1.0)"),
+    (8.0, 1.3, 0.0, 0.0, "walk (vx=1.5)"),
+    (10.0, 2.0, 0.0, 0.0, "run (vx=2.0)"),
+    (8.0, 2.0, 0.0, 0.5, "run turning (vx=2.5)"),
+    (4.0, 1.5, 0.0, 0.5, "decel (vx=1.3)"),
+    (2.0, 1.8, 0.0, 1.2, "decel (vx=1.3)"),
+    (3.0, 0.0, -0.7, 0.0, "decel (vx=1.3)"),
+    (2.0, 3.0, -1.0, 0.0, "decel (vx=1.3)"),
+    (6.0, 3.0, 0.0, 0.0, "decel (vx=1.3)"),
+    (4.0, -0.7, 0.0, 0.0, "decel (vx=-1.0)"),
+    (4.0, -1.5, 0.0, 0.0, "decel (vx=-1.0)"),
+    (6.0, 0.0, -0.7, 0.0, "lateral (v7=-1.0)"),
+    # (6.0, 0.0, -1.5, 0.0, "lateral (v7=-1.0)"),
     (5.0, 0.0, 0.0, 1.0, "turn sul posto (wz=1.0)"),
     (6.0, 1.0, 0.0, 0.5, "walk + turn"),
     (4.0, -0.5, 0.0, 0.0, "walk indietro"),
@@ -60,6 +66,8 @@ class Config:
     """Path to the trained locomotion .pt checkpoint."""
     imitation_checkpoint_file: str | None = None
     """Optional imitation .pt (RVQ low-level) checkpoint; required for the YAHMP runner."""
+    rvq_num_active_quantizers: int | None = None
+    """Active RVQ codebooks; MUST match the trained checkpoint (None = all 8)."""
     num_envs: int = 1
     device: str | None = None
     viewer: Literal["auto", "native", "viser"] = "auto"
@@ -128,6 +136,16 @@ def main() -> None:
         registered_cfg.imitation_checkpoint_file = cfg.imitation_checkpoint_file
         print(f"[INFO] Imitation checkpoint: {cfg.imitation_checkpoint_file}")
 
+    if cfg.rvq_num_active_quantizers is not None:
+        registered_cfg = _REGISTRY[chosen_task].rl_cfg
+        if not hasattr(registered_cfg, "rvq_num_active_quantizers"):
+            raise ValueError(
+                f"Task {chosen_task} runner cfg does not accept "
+                "`rvq_num_active_quantizers`."
+            )
+        registered_cfg.rvq_num_active_quantizers = cfg.rvq_num_active_quantizers
+        print(f"[INFO] Active RVQ codebooks: {cfg.rvq_num_active_quantizers}")
+
     device = cfg.device or ("cuda:0" if torch.cuda.is_available() else "cpu")
 
     env_cfg = load_env_cfg(chosen_task, play=True)
@@ -162,14 +180,11 @@ def main() -> None:
     )
     policy = runner.get_inference_policy(device=device)
 
-    # ---- Inject scripted command override ----------------------------------
     cmd_mgr = env.unwrapped.command_manager
     twist_name = _find_twist_term_name(cmd_mgr.active_terms)
     print(f"[INFO] Overriding command term: {twist_name!r}")
     twist_term = cmd_mgr.get_term(twist_name)
 
-    # Defang every mechanism that could otherwise overwrite vel_command_b
-    # after we've written it.
     if hasattr(twist_term, "cfg"):
         if hasattr(twist_term.cfg, "rel_standing_envs"):
             twist_term.cfg.rel_standing_envs = 0.0
@@ -181,7 +196,6 @@ def main() -> None:
         twist_term.is_standing_env[:] = False
     if hasattr(twist_term, "is_heading_env"):
         twist_term.is_heading_env[:] = False
-    # Disable the joystick GUI hook in UniformVelocityCommand.compute.
     if hasattr(twist_term, "_joystick_enabled"):
         twist_term._joystick_enabled = None
 
@@ -191,8 +205,6 @@ def main() -> None:
 
     def scripted_compute(dt: float) -> None:
         original_compute(dt)
-        # In case _resample_command re-rolled standing/heading flags,
-        # keep them off before we overwrite the command.
         if hasattr(twist_term, "is_standing_env"):
             twist_term.is_standing_env[:] = False
         if hasattr(twist_term, "is_heading_env"):
@@ -214,7 +226,6 @@ def main() -> None:
 
     twist_term.compute = scripted_compute  # type: ignore[assignment]
 
-    # ---- Choose viewer -----------------------------------------------------
     if cfg.viewer == "auto":
         has_display = bool(
             os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")

@@ -173,20 +173,20 @@ def _events() -> dict[str, EventTermCfg]:
                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
             },
         ),
-        # Only perturb envs that are commanded to move. Pushing standing-
-        # commanded envs taught the policy reactive arm/torso balance at rest
-        # (standing jitter); gating on command magnitude keeps the perturbation
-        # robustness during walking/running while sparing standstill.
-        "push_robot": EventTermCfg(
-            func=mdp.push_moving_envs_by_setting_velocity,
-            mode="interval",
-            interval_range_s=(3.0, 6.0),
-            params={
-                "velocity_range": PUSH_VELOCITY_RANGE,
-                "command_name": TWIST_COMMAND_NAME,
-                "command_threshold": 0.1,
-            },
-        ),
+        # # Only perturb envs that are commanded to move. Pushing standing-
+        # # commanded envs taught the policy reactive arm/torso balance at rest
+        # # (standing jitter); gating on command magnitude keeps the perturbation
+        # # robustness during walking/running while sparing standstill.
+        # "push_robot": EventTermCfg(
+        #     func=mdp.push_moving_envs_by_setting_velocity,
+        #     mode="interval",
+        #     interval_range_s=(3.0, 6.0),
+        #     params={
+        #         "velocity_range": PUSH_VELOCITY_RANGE,
+        #         "command_name": TWIST_COMMAND_NAME,
+        #         "command_threshold": 0.1,
+        #     },
+        # ),
         "base_com": EventTermCfg(
             mode="startup",
             func=dr.body_com_offset,
@@ -252,7 +252,7 @@ def _rewards() -> dict[str, RewardTermCfg]:
         # the mjlab g1 velocity task (walking regime, arm joints).
         "upper_body_posture": RewardTermCfg(
             func=vel_mdp.posture,
-            weight=0.4,
+            weight=0.2,
             params={
                 "asset_cfg": SceneEntityCfg(
                     "robot",

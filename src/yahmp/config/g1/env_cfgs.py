@@ -9,6 +9,7 @@ from mjlab.asset_zoo.robots.unitree_g1.g1_constants import (
     FULL_COLLISION,
     HOME_KEYFRAME,
 )
+
 # from mjlab.entity import EntityArticulationInfoCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
@@ -202,7 +203,7 @@ def _apply_unitree_g1_overrides(
         cfg.terminations.clear()
         if motion_expiration_termination is not None:
             cfg.terminations["motion_ref_expired"] = motion_expiration_termination
-        # cfg.events.pop("push_robot", None)
+        cfg.events.pop("push_robot", None)
         # cfg.events.pop("action_delay", None)
         # Uncomment to disable "push_end_effector" event.
         # cfg.events.pop("push_end_effector", None)

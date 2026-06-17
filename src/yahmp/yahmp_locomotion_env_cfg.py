@@ -46,14 +46,14 @@ PUSH_VELOCITY_RANGE = {
 def _velocity_command_kwargs() -> dict[str, object]:
     return {
         "entity_name": "robot",
-        "resampling_time_range": (2.0, 4.0),
+        "resampling_time_range": (5.0, 10.0),
         "rel_standing_envs": 0.1,
         "rel_heading_envs": 0.0,
         "heading_command": False,
         "debug_vis": True,
         "ranges": UniformVelocityCommandCfg.Ranges(
             lin_vel_x=(-0.7, 1.5),
-            lin_vel_y=(-0.4, 0.4),
+            lin_vel_y=(-0.7, 0.7),
             ang_vel_z=(-1.2, 1.2),
         ),
     }
@@ -173,12 +173,20 @@ def _events() -> dict[str, EventTermCfg]:
                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
             },
         ),
-        # "push_robot": EventTermCfg(
-        #     func=mdp.push_by_setting_velocity,
-        #     mode="interval",
-        #     interval_range_s=(1.0, 3.0),
-        #     params={"velocity_range": PUSH_VELOCITY_RANGE},
-        # ),
+        # Only perturb envs that are commanded to move. Pushing standing-
+        # commanded envs taught the policy reactive arm/torso balance at rest
+        # (standing jitter); gating on command magnitude keeps the perturbation
+        # robustness during walking/running while sparing standstill.
+        "push_robot": EventTermCfg(
+            func=mdp.push_moving_envs_by_setting_velocity,
+            mode="interval",
+            interval_range_s=(3.0, 6.0),
+            params={
+                "velocity_range": PUSH_VELOCITY_RANGE,
+                "command_name": TWIST_COMMAND_NAME,
+                "command_threshold": 0.1,
+            },
+        ),
         "base_com": EventTermCfg(
             mode="startup",
             func=dr.body_com_offset,
@@ -198,7 +206,7 @@ def _events() -> dict[str, EventTermCfg]:
             params={
                 "asset_cfg": SceneEntityCfg("robot", geom_names=()),
                 "operation": "abs",
-                "ranges": (0.3, 1.2),
+                "ranges": (0.4, 1.2),
                 "shared_random": True,
             },
         ),
@@ -233,6 +241,55 @@ def _rewards() -> dict[str, RewardTermCfg]:
             weight=2.0,
             params={"command_name": TWIST_COMMAND_NAME, "std": math.sqrt(0.5)},
         ),
+        # Upper-body home-pose regularisation. The categorical policy has no
+        # goal for the arms, so PPO recruits them for balance/exploration,
+        # producing tremor and erratic upper-body motion on top of an
+        # otherwise-decent gait. This anchors shoulders/elbows/wrists to the
+        # home pose (the residual baseline, use_default_offset=True) with
+        # exp(-mean(err^2/std^2)) -- mjlab's `posture` reward. Weight is 10x
+        # below the tracking terms (0.2 vs 2.0) so it silences the arms
+        # without competing with velocity tracking. Std values copied from
+        # the mjlab g1 velocity task (walking regime, arm joints).
+        "upper_body_posture": RewardTermCfg(
+            func=vel_mdp.posture,
+            weight=0.4,
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=(
+                        ".*_shoulder_pitch_joint",
+                        ".*_shoulder_roll_joint",
+                        ".*_shoulder_yaw_joint",
+                        ".*_elbow_joint",
+                        ".*_wrist_.*",
+                    ),
+                ),
+                "std": {
+                    r".*shoulder_pitch.*": 0.15,
+                    r".*shoulder_roll.*": 0.15,
+                    r".*shoulder_yaw.*": 0.1,
+                    r".*elbow.*": 0.15,
+                    r".*wrist.*": 0.3,
+                },
+            },
+        ),
+        # Penalise robot self-collisions (e.g. an arm intersecting the torso
+        # or legs). Returns the count of detected self-contacts; requires the
+        # `self_collision` sensor and the FULL_COLLISION preset, both enabled
+        # in config/g1/env_cfgs.py. Without those the signal is always zero.
+        "self_collisions": RewardTermCfg(
+            func=mdp.self_collision_cost,
+            weight=-0.5,
+            params={"sensor_name": "self_collision"},
+        ),
+        # Action smoothness penalties to attenuate the standing jitter seen on
+        # the real robot. Same terms/weights added to the expert EncDec env:
+        # action_rate_l2 penalises the action velocity (||a_t - a_{t-1}||^2),
+        # action_acc_l2 the action acceleration / jerk
+        # (||a_t - 2 a_{t-1} + a_{t-2}||^2). Both push the categorical toward
+        # quieter actions at rest without a standing-specific gate.
+        "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-1e-1),
+        "action_acc_l2": RewardTermCfg(func=mdp.action_acc_l2, weight=-5e-2),
         # "feet_air_time": RewardTermCfg(
         #     func=vel_mdp.feet_air_time,
         #     weight=1.0,
@@ -286,12 +343,18 @@ def _curriculum() -> dict[str, CurriculumTermCfg]:
                         "lin_vel_y": (-0.4, 0.4),
                         "ang_vel_z": (-1.2, 1.2),
                     },
-                    # {
-                    #     "step": 3500 * 24,
-                    #     "lin_vel_x": (-0.6, 1.5),
-                    #     "lin_vel_y": (-0.4, 0.4),
-                    #     "ang_vel_z": (-1.2, 1.2),
-                    # },
+                    {
+                        "step": 2000 * 24,
+                        "lin_vel_x": (-0.8, 2.5),
+                        "lin_vel_y": (-0.6, 0.6),
+                        "ang_vel_z": (-2.0, 2.0),
+                    },
+                    {
+                        "step": 3000 * 24,
+                        "lin_vel_x": (-1.0, 3.0),
+                        "lin_vel_y": (-1.0, 1.0),
+                        "ang_vel_z": (-3.0, 3.0),
+                    },
                 ],
             },
         ),
@@ -360,5 +423,5 @@ def _make_env_cfg(*, actions: dict[str, ActionTermCfg]) -> ManagerBasedRlEnvCfg:
             ),
         ),
         decimation=4,
-        episode_length_s=20.0,
+        episode_length_s=10.0,
     )

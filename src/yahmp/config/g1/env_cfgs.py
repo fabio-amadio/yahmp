@@ -3,14 +3,14 @@
 import math
 from pathlib import Path
 
-# from mjlab.actuator import DelayedActuatorCfg
+from mjlab.actuator import DelayedActuatorCfg
 from mjlab.asset_zoo.robots import G1_ACTION_SCALE, get_g1_robot_cfg
 from mjlab.asset_zoo.robots.unitree_g1.g1_constants import (
     FULL_COLLISION,
     HOME_KEYFRAME,
 )
 
-# from mjlab.entity import EntityArticulationInfoCfg
+from mjlab.entity import EntityArticulationInfoCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
@@ -65,19 +65,19 @@ G1_COMPARISON_KEY_BODY_NAMES = (
 )
 
 
-# def _make_g1_delayed_actuators(
-#     base_actuators: tuple[DelayedActuatorCfg, ...],
-# ) -> tuple[DelayedActuatorCfg, ...]:
-#     return tuple(
-#         DelayedActuatorCfg(
-#             base_cfg=actuator_cfg,
-#             delay_target="position",
-#             delay_min_lag=0,
-#             delay_max_lag=4,
-#             delay_hold_prob=1.0,
-#         )
-#         for actuator_cfg in base_actuators
-#     )
+def _make_g1_delayed_actuators(
+    base_actuators: tuple[DelayedActuatorCfg, ...],
+) -> tuple[DelayedActuatorCfg, ...]:
+    return tuple(
+        DelayedActuatorCfg(
+            base_cfg=actuator_cfg,
+            delay_target="position",
+            delay_min_lag=0,
+            delay_max_lag=4,
+            delay_hold_prob=1.0,
+        )
+        for actuator_cfg in base_actuators
+    )
 
 
 def _apply_unitree_g1_overrides(
@@ -262,11 +262,16 @@ def _apply_unitree_g1_locomotion_overrides(
     # nothing. Required for the upper body to physically stop intersecting
     # the torso/legs and for the penalty to have a signal to learn from.
     robot_cfg.collisions = (FULL_COLLISION,)
-    # assert robot_cfg.articulation is not None
-    # robot_cfg.articulation = EntityArticulationInfoCfg(
-    #     actuators=_make_g1_delayed_actuators(robot_cfg.articulation.actuators),
-    #     soft_joint_pos_limit_factor=robot_cfg.articulation.soft_joint_pos_limit_factor,
-    # )
+    # Delayed actuators (sim-to-real DR) kept ON for locomotion: the deployed
+    # policy and its imitation backbone were trained with actuation delay, and
+    # the standing jitter we are fine-tuning against is a real-robot symptom
+    # tied to that lag -- the env must reproduce it. (The expert override leaves
+    # this disabled by design.)
+    assert robot_cfg.articulation is not None
+    robot_cfg.articulation = EntityArticulationInfoCfg(
+        actuators=_make_g1_delayed_actuators(robot_cfg.articulation.actuators),
+        soft_joint_pos_limit_factor=robot_cfg.articulation.soft_joint_pos_limit_factor,
+    )
     cfg.scene.entities = {"robot": robot_cfg}
 
     feet_ground_cfg = ContactSensorCfg(

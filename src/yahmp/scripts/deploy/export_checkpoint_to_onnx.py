@@ -50,9 +50,30 @@ def export_checkpoint_to_onnx(
   output_path: Path,
   device: str,
   num_envs: int,
+  imitation_checkpoint_file: str | None = None,
+  rvq_num_active_quantizers: int | None = None,
 ) -> None:
   env_cfg = load_env_cfg(task_id)
   agent_cfg = load_rl_cfg(task_id)
+
+  # Hierarchical locomotion / loco-manip runners rebuild a frozen imitation
+  # backbone at construction time and refuse to instantiate without an
+  # imitation checkpoint -- even though the locomotion checkpoint we load right
+  # after already contains those (frozen) weights. The imitation checkpoint is
+  # only the scaffold here: `runner.alg.load(..., strict=True)` below overwrites
+  # every actor weight (backbone + high_level + normalizer) with the exported
+  # checkpoint's, so any architecture-compatible imitation file works.
+  for field_name, value in (
+    ("imitation_checkpoint_file", imitation_checkpoint_file),
+    ("rvq_num_active_quantizers", rvq_num_active_quantizers),
+  ):
+    if value is None:
+      continue
+    if not hasattr(agent_cfg, field_name):
+      raise ValueError(
+        f"Task {task_id} agent cfg does not accept `{field_name}`."
+      )
+    setattr(agent_cfg, field_name, value)
 
   if num_envs > 0:
     env_cfg.scene.num_envs = num_envs
@@ -112,6 +133,21 @@ def _build_argparser() -> argparse.ArgumentParser:
     help="Optional checkpoint filename within the W&B run, e.g. model_7000.pt.",
   )
   parser.add_argument(
+    "--imitation-checkpoint-file",
+    type=str,
+    default=None,
+    help="Imitation .pt for the frozen backbone scaffold. Required for the "
+    "hierarchical locomotion/loco-manip runner (its weights are overwritten "
+    "by the exported checkpoint, so any architecture-compatible file works).",
+  )
+  parser.add_argument(
+    "--rvq-num-active-quantizers",
+    type=int,
+    default=None,
+    help="Active RVQ codebooks; must match the exported checkpoint "
+    "(None = the cfg default, i.e. all).",
+  )
+  parser.add_argument(
     "--output-path",
     type=Path,
     default=None,
@@ -167,6 +203,8 @@ def main() -> None:
     output_path=output_path,
     device=str(args.device),
     num_envs=int(args.num_envs),
+    imitation_checkpoint_file=args.imitation_checkpoint_file,
+    rvq_num_active_quantizers=args.rvq_num_active_quantizers,
   )
   print(f"[INFO] Exported ONNX to: {output_path}")
 

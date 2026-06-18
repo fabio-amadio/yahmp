@@ -345,6 +345,10 @@ def unitree_g1_yahmp_imitation_residual_runner_cfg() -> YahmpImitationRunnerCfg:
 def unitree_g1_yahmp_locomotion_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg:
     return YahmpLocomotionOnPolicyRunnerCfg(
         seed=1,
+        # Number of RVQ codebooks the categorical drives (RVQ stays 8-deep for
+        # checkpoint compat). None => all 8 (baseline). Override from the CLI,
+        # e.g. `--agent.rvq-num-active-quantizers 3`, to test a coarser subset.
+        rvq_num_active_quantizers=None,
         actor=RslRlModelCfg(
             class_name="yahmp.rl.locomotion_policy:YahmpLocomotionActorModel",
             hidden_dims=(512, 512, 256, 128),
@@ -385,6 +389,38 @@ def unitree_g1_yahmp_locomotion_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg
         max_iterations=20_000,
         obs_groups={"actor": ("actor",), "critic": ("critic",)},
     )
+
+
+def unitree_g1_yahmp_locomanip_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg:
+    """Runner for the point-goal hand-reach (loco-manipulation) task.
+
+    Identical hierarchical setup to the locomotion runner (frozen imitation
+    backbone + categorical high-level + critic); only the experiment name and
+    tags differ. The actor obs/goal dims (the reach command is 5-D vs the 3-D
+    twist) are derived automatically by the runner from the env.
+    """
+    cfg = unitree_g1_yahmp_locomotion_runner_cfg()
+    cfg.experiment_name = "g1_yahmp_locomanip"
+    cfg.wandb_tags = _wandb_tags(
+        "yahmp", "locomanip", "reach", "frozen_imitation", "high_level"
+    )
+    return cfg
+
+
+def unitree_g1_yahmp_boxing_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg:
+    """Runner for the boxing task (velocity tracking + commanded-hand striking).
+
+    Identical hierarchical setup to the locomotion runner (frozen imitation
+    backbone + categorical high-level + critic); only the experiment name and
+    tags differ. The actor obs/goal dims (the boxing command is 8-D: velocity
+    3-D + strike 5-D) are derived automatically by the runner from the env.
+    """
+    cfg = unitree_g1_yahmp_locomotion_runner_cfg()
+    cfg.experiment_name = "g1_yahmp_boxing"
+    cfg.wandb_tags = _wandb_tags(
+        "yahmp", "boxing", "strike", "frozen_imitation", "high_level"
+    )
+    return cfg
 
 
 def unitree_g1_yahmp_student_kl_matching_rl_runner_cfg() -> (

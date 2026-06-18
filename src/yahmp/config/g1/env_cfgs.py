@@ -350,3 +350,18 @@ def unitree_g1_yahmp_locomanip_env_cfg(
     from yahmp.yahmp_locomanip_env_cfg import make_locomanip_env_cfg
 
     return _apply_unitree_g1_locomotion_overrides(make_locomanip_env_cfg(), play=play)
+
+
+def unitree_g1_yahmp_boxing_env_cfg(
+    play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+    """Create the Unitree G1 YAHMP boxing configuration.
+
+    Velocity-command locomotion + commanded-hand striking. Shares the
+    locomotion robot/sensor/DR overrides (FULL_COLLISION + ``self_collision``
+    sensor); the commands, rewards and curriculum differ, defined in
+    ``make_boxing_env_cfg``.
+    """
+    from yahmp.yahmp_boxing_env_cfg import make_boxing_env_cfg
+
+    return _apply_unitree_g1_locomotion_overrides(make_boxing_env_cfg(), play=play)

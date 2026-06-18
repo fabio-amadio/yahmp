@@ -1,12 +1,3 @@
-"""YAHMP omnidirectional locomotion task configuration.
-
-Velocity-command tracking environment used to learn a high-level policy on top
-of a frozen YAHMP imitation backbone (history_encoder is rebuilt; prior, RVQ
-and action_decoder are loaded from the imitation checkpoint and frozen).
-
-Goal: ``g_task = (vx_cmd, vy_cmd, ω_z_cmd)`` in body frame.
-"""
-
 import math
 
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -31,7 +22,8 @@ from mjlab.viewer import ViewerConfig
 from yahmp import mdp
 
 HISTORY_LENGTH = 10
-TWIST_COMMAND_NAME = "twist"
+VELOCITY_COMMAND_NAME = "velocity"
+STRIKE_COMMAND_NAME = "strike"
 
 PUSH_VELOCITY_RANGE = {
     "x": (-0.5, 0.5),
@@ -43,24 +35,39 @@ PUSH_VELOCITY_RANGE = {
 }
 
 
-def _velocity_command_kwargs() -> dict[str, object]:
-    return {
-        "entity_name": "robot",
-        "resampling_time_range": (5.0, 10.0),
-        "rel_standing_envs": 0.1,
-        "rel_heading_envs": 0.0,
-        "heading_command": False,
-        "debug_vis": True,
-        "ranges": UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(0.6, 0.8),
-            lin_vel_y=(-0.0, 0.0),
-            ang_vel_z=(-0.3, 0.3),
+def _velocity_command_cfg() -> UniformVelocityCommandCfg:
+    return UniformVelocityCommandCfg(
+        entity_name="robot",
+        resampling_time_range=(5.0, 10.0),
+        rel_standing_envs=0.0,
+        rel_heading_envs=0.0,
+        heading_command=False,
+        debug_vis=True,
+        ranges=UniformVelocityCommandCfg.Ranges(
+            lin_vel_x=(0.3, 0.6),
+            lin_vel_y=(-0.1, 0.1),
+            ang_vel_z=(-0.4, 0.4),
         ),
-    }
+    )
+
+
+def _strike_command_cfg() -> mdp.BoxingStrikeCommandCfg:
+    return mdp.BoxingStrikeCommandCfg(
+        entity_name="robot",
+        resampling_time_range=(2.0, 4.0),
+        debug_vis=True,
+        left_wrist_body_name="left_wrist_yaw_link",
+        right_wrist_body_name="right_wrist_yaw_link",
+        p_right=0.5,
+        forward_range=(0.30, 0.45),
+        lateral_outboard=0.40,
+        lateral_inboard=0.10,
+        height_range=(0.95, 1.10),
+        reach_tol=0.15,
+    )
 
 
 def _proprio_actor_terms() -> dict[str, ObservationTermCfg]:
-    """Same proprio block used by the YAHMP imitation actor, with corruption."""
     return {
         "base_ang_vel": ObservationTermCfg(
             func=mdp.builtin_sensor,
@@ -115,16 +122,20 @@ def _privileged_terms() -> dict[str, ObservationTermCfg]:
 
 def _command_term() -> ObservationTermCfg:
     return ObservationTermCfg(
-        func=mdp.velocity_command,
-        params={"command_name": TWIST_COMMAND_NAME},
+        func=mdp.boxing_command,
+        params={
+            "velocity_command_name": VELOCITY_COMMAND_NAME,
+            "strike_command_name": STRIKE_COMMAND_NAME,
+        },
     )
 
 
 def _history_term(*, include_privileged: bool = False) -> ObservationTermCfg:
+    # Proprio-only history (command-agnostic); command_name is vestigial here.
     return ObservationTermCfg(
         func=mdp.YahmpLocomotionObservationHistory,
         params={
-            "command_name": TWIST_COMMAND_NAME,
+            "command_name": VELOCITY_COMMAND_NAME,
             "history_length": HISTORY_LENGTH,
             "include_privileged": include_privileged,
         },
@@ -132,13 +143,6 @@ def _history_term(*, include_privileged: bool = False) -> ObservationTermCfg:
 
 
 def _actions() -> dict[str, ActionTermCfg]:
-    """Residual joint position action relative to the default pose.
-
-    Locomotion has no motion reference, so the residual baseline is the
-    robot's default joint pose (``use_default_offset=True``). The frozen
-    imitation ``action_decoder`` produces small offsets that we add on top
-    of that baseline before sending to the PD controller.
-    """
     return {
         "joint_pos": JointPositionActionCfg(
             entity_name="robot",
@@ -173,17 +177,13 @@ def _events() -> dict[str, EventTermCfg]:
                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
             },
         ),
-        # # Only perturb envs that are commanded to move. Pushing standing-
-        # # commanded envs taught the policy reactive arm/torso balance at rest
-        # # (standing jitter); gating on command magnitude keeps the perturbation
-        # # robustness during walking/running while sparing standstill.
         "push_robot": EventTermCfg(
             func=mdp.push_moving_envs_by_setting_velocity,
             mode="interval",
             interval_range_s=(3.0, 6.0),
             params={
                 "velocity_range": PUSH_VELOCITY_RANGE,
-                "command_name": TWIST_COMMAND_NAME,
+                "command_name": VELOCITY_COMMAND_NAME,
                 "command_threshold": 0.1,
             },
         ),
@@ -214,97 +214,56 @@ def _events() -> dict[str, EventTermCfg]:
 
 
 def _rewards() -> dict[str, RewardTermCfg]:
-    """Velocity tracking + two-term minimal gait shaping.
-
-    The categorical converges on a degenerate "tip-toe + forward-lean"
-    attractor that satisfies velocity tracking with minimum action
-    variance. Two-term minimum surgical shaping addresses the two
-    visible symptoms:
-
-      - ``feet_air_time``: rewards step durations in [0.05, 0.5]s.
-        Breaks the short-stride tip-toe attractor.
-      - ``flat_orientation_l2``: penalises non-upright base orientation.
-        Fixes the forward-lean compensation pattern.
-
-    Task weights kept at 2.0 to measure the marginal effect of shaping
-    without confounding by a rescale. Other naturalness properties
-    (arm swing, smoothness) left to the prior.
-    """
     return {
+        # Locomotion velocity tracking (legs) -- the anchor objective.
         "track_linear_velocity": RewardTermCfg(
             func=vel_mdp.track_linear_velocity,
             weight=2.0,
-            params={"command_name": TWIST_COMMAND_NAME, "std": math.sqrt(0.25)},
+            params={"command_name": VELOCITY_COMMAND_NAME, "std": math.sqrt(0.25)},
         ),
         "track_angular_velocity": RewardTermCfg(
             func=vel_mdp.track_angular_velocity,
+            weight=1.0,
+            params={"command_name": VELOCITY_COMMAND_NAME, "std": math.sqrt(0.5)},
+        ),
+        "strike_homing": RewardTermCfg(
+            func=mdp.strike_homing_exp,
+            weight=0.5,
+            params={"command_name": STRIKE_COMMAND_NAME, "std": 0.4},
+        ),
+        "strike_homing_fine": RewardTermCfg(
+            func=mdp.strike_homing_exp,
+            weight=1.5,
+            params={"command_name": STRIKE_COMMAND_NAME, "std": 0.12},
+        ),
+        # Sparse +1 per landed strike (resamples the bag).
+        "strike_success": RewardTermCfg(
+            func=mdp.strike_success_bonus,
             weight=2.0,
-            params={"command_name": TWIST_COMMAND_NAME, "std": math.sqrt(0.5)},
+            params={"command_name": STRIKE_COMMAND_NAME},
         ),
-        # Upper-body home-pose regularisation. The categorical policy has no
-        # goal for the arms, so PPO recruits them for balance/exploration,
-        # producing tremor and erratic upper-body motion on top of an
-        # otherwise-decent gait. This anchors shoulders/elbows/wrists to the
-        # home pose (the residual baseline, use_default_offset=True) with
-        # exp(-mean(err^2/std^2)) -- mjlab's `posture` reward. Weight is 10x
-        # below the tracking terms (0.2 vs 2.0) so it silences the arms
-        # without competing with velocity tracking. Std values copied from
-        # the mjlab g1 velocity task (walking regime, arm joints).
-        "upper_body_posture": RewardTermCfg(
-            func=vel_mdp.posture,
-            weight=0.2,
-            params={
-                "asset_cfg": SceneEntityCfg(
-                    "robot",
-                    joint_names=(
-                        ".*_shoulder_pitch_joint",
-                        ".*_shoulder_roll_joint",
-                        ".*_shoulder_yaw_joint",
-                        ".*_elbow_joint",
-                        ".*_wrist_.*",
-                    ),
-                ),
-                "std": {
-                    r".*shoulder_pitch.*": 0.15,
-                    r".*shoulder_roll.*": 0.15,
-                    r".*shoulder_yaw.*": 0.1,
-                    r".*elbow.*": 0.15,
-                    r".*wrist.*": 0.3,
-                },
-            },
+        "strike_impact": RewardTermCfg(
+            func=mdp.strike_impact_bonus,
+            weight=1.0,
+            params={"command_name": STRIKE_COMMAND_NAME, "speed_cap": 3.0},
         ),
-        # Penalise robot self-collisions (e.g. an arm intersecting the torso
-        # or legs). Returns the count of detected self-contacts; requires the
-        # `self_collision` sensor and the FULL_COLLISION preset, both enabled
-        # in config/g1/env_cfgs.py. Without those the signal is always zero.
+        # Narrow backstop so the policy strikes with the COMMANDED hand.
+        "wrong_hand": RewardTermCfg(
+            func=mdp.strike_wrong_hand_penalty,
+            weight=-0.5,
+            params={"command_name": STRIKE_COMMAND_NAME},
+        ),
+        "idle_hand_home": RewardTermCfg(
+            func=mdp.strike_idle_hand_home_penalty,
+            weight=-5.0,
+            params={"command_name": STRIKE_COMMAND_NAME},
+        ),
+        # Physical self-collisions (arm into torso/legs). Light.
         "self_collisions": RewardTermCfg(
             func=mdp.self_collision_cost,
             weight=-0.5,
             params={"sensor_name": "self_collision"},
         ),
-        # Action smoothness penalties to attenuate the standing jitter seen on
-        # the real robot. Same terms/weights added to the expert EncDec env:
-        # action_rate_l2 penalises the action velocity (||a_t - a_{t-1}||^2),
-        # action_acc_l2 the action acceleration / jerk
-        # (||a_t - 2 a_{t-1} + a_{t-2}||^2). Both push the categorical toward
-        # quieter actions at rest without a standing-specific gate.
-        "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-1e-1),
-        "action_acc_l2": RewardTermCfg(func=mdp.action_acc_l2, weight=-5e-2),
-        # "feet_air_time": RewardTermCfg(
-        #     func=vel_mdp.feet_air_time,
-        #     weight=1.0,
-        #     params={
-        #         "sensor_name": "feet_ground_contact",
-        #         "threshold_min": 0.05,
-        #         "threshold_max": 0.5,
-        #         "command_name": TWIST_COMMAND_NAME,
-        #         "command_threshold": 0.1,
-        #     },
-        # ),
-        # "flat_orientation_l2": RewardTermCfg(
-        #     func=vel_mdp.flat_orientation_l2,
-        #     weight=-1.0,
-        # ),
     }
 
 
@@ -323,37 +282,31 @@ def _curriculum() -> dict[str, CurriculumTermCfg]:
         "command_vel": CurriculumTermCfg(
             func=vel_mdp.commands_vel,
             params={
-                "command_name": TWIST_COMMAND_NAME,
+                "command_name": VELOCITY_COMMAND_NAME,
                 "velocity_stages": [
                     {
                         "step": 0,
-                        "lin_vel_x": (0.0, 0.5),
-                        "lin_vel_y": (-0.08, 0.08),
-                        "ang_vel_z": (-0.5, 0.5),
+                        "lin_vel_x": (0.2, 0.6),
+                        "lin_vel_y": (-0.0, 0.0),
+                        "ang_vel_z": (-0.4, 0.4),
                     },
                     {
                         "step": 500 * 24,
-                        "lin_vel_x": (-0.2, 0.8),
+                        "lin_vel_x": (0.2, 0.9),
                         "lin_vel_y": (-0.2, 0.2),
-                        "ang_vel_z": (-1.0, 1.0),
+                        "ang_vel_z": (-0.8, 0.8),
                     },
                     {
                         "step": 1000 * 24,
-                        "lin_vel_x": (-0.5, 1.5),
-                        "lin_vel_y": (-0.4, 0.4),
-                        "ang_vel_z": (-1.2, 1.2),
+                        "lin_vel_x": (0.8, 1.2),
+                        "lin_vel_y": (-0.3, 0.3),
+                        "ang_vel_z": (-1.0, 1.0),
                     },
                     {
-                        "step": 2000 * 24,
-                        "lin_vel_x": (-0.8, 2.5),
-                        "lin_vel_y": (-0.6, 0.6),
-                        "ang_vel_z": (-2.0, 2.0),
-                    },
-                    {
-                        "step": 3000 * 24,
-                        "lin_vel_x": (-1.0, 3.0),
-                        "lin_vel_y": (-1.0, 1.0),
-                        "ang_vel_z": (-3.0, 3.0),
+                        "step": 1800 * 24,
+                        "lin_vel_x": (1.0, 1.8),
+                        "lin_vel_y": (-0.3, 0.3),
+                        "ang_vel_z": (-1.0, 1.0),
                     },
                 ],
             },
@@ -361,12 +314,8 @@ def _curriculum() -> dict[str, CurriculumTermCfg]:
     }
 
 
-def make_locomotion_env_cfg() -> ManagerBasedRlEnvCfg:
-    """YAHMP omnidirectional locomotion task template (residual joint actions)."""
-    return _make_env_cfg(actions=_actions())
-
-
-def _make_env_cfg(*, actions: dict[str, ActionTermCfg]) -> ManagerBasedRlEnvCfg:
+def make_boxing_env_cfg() -> ManagerBasedRlEnvCfg:
+    """YAHMP boxing task template (velocity tracking + commanded-hand striking)."""
     actor_terms = {
         "command": _command_term(),
         **_proprio_actor_terms(),
@@ -393,13 +342,14 @@ def _make_env_cfg(*, actions: dict[str, ActionTermCfg]) -> ManagerBasedRlEnvCfg:
     }
 
     commands: dict[str, CommandTermCfg] = {
-        TWIST_COMMAND_NAME: UniformVelocityCommandCfg(**_velocity_command_kwargs()),
+        VELOCITY_COMMAND_NAME: _velocity_command_cfg(),
+        STRIKE_COMMAND_NAME: _strike_command_cfg(),
     }
 
     return ManagerBasedRlEnvCfg(
         scene=SceneCfg(terrain=TerrainEntityCfg(terrain_type="plane"), num_envs=1),
         observations=observations,
-        actions=actions,
+        actions=_actions(),
         commands=commands,
         events=_events(),
         curriculum=_curriculum(),
@@ -423,5 +373,5 @@ def _make_env_cfg(*, actions: dict[str, ActionTermCfg]) -> ManagerBasedRlEnvCfg:
             ),
         ),
         decimation=4,
-        episode_length_s=10.0,
+        episode_length_s=15.0,
     )

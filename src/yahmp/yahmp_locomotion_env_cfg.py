@@ -52,9 +52,9 @@ def _velocity_command_kwargs() -> dict[str, object]:
         "heading_command": False,
         "debug_vis": True,
         "ranges": UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-0.7, 1.5),
-            lin_vel_y=(-0.7, 0.7),
-            ang_vel_z=(-1.2, 1.2),
+            lin_vel_x=(-1.0, 1.0),
+            lin_vel_y=(-1.0, 1.0),
+            ang_vel_z=(-0.5, 0.5),
         ),
     }
 
@@ -168,25 +168,17 @@ def _events() -> dict[str, EventTermCfg]:
             func=vel_mdp.reset_joints_by_offset,
             mode="reset",
             params={
-                "position_range": (0.0, 0.0),
+                "position_range": (-0.0175 , 0.0175),
                 "velocity_range": (0.0, 0.0),
                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
             },
         ),
-        # # Only perturb envs that are commanded to move. Pushing standing-
-        # # commanded envs taught the policy reactive arm/torso balance at rest
-        # # (standing jitter); gating on command magnitude keeps the perturbation
-        # # robustness during walking/running while sparing standstill.
-        # "push_robot": EventTermCfg(
-        #     func=mdp.push_moving_envs_by_setting_velocity,
-        #     mode="interval",
-        #     interval_range_s=(3.0, 6.0),
-        #     params={
-        #         "velocity_range": PUSH_VELOCITY_RANGE,
-        #         "command_name": TWIST_COMMAND_NAME,
-        #         "command_threshold": 0.1,
-        #     },
-        # ),
+        "push_robot": EventTermCfg(
+            func=mdp.push_by_setting_velocity,
+            mode="interval",
+            interval_range_s=(1.0, 3.0),
+            params={"velocity_range": PUSH_VELOCITY_RANGE},
+        ),
         "base_com": EventTermCfg(
             mode="startup",
             func=dr.body_com_offset,
@@ -301,10 +293,10 @@ def _rewards() -> dict[str, RewardTermCfg]:
         #         "command_threshold": 0.1,
         #     },
         # ),
-        # "flat_orientation_l2": RewardTermCfg(
-        #     func=vel_mdp.flat_orientation_l2,
-        #     weight=-1.0,
-        # ),
+        "flat_orientation_l2": RewardTermCfg(
+            func=vel_mdp.flat_orientation_l2,
+            weight=-1.0,
+        ),
     }
 
 
@@ -327,33 +319,18 @@ def _curriculum() -> dict[str, CurriculumTermCfg]:
                 "velocity_stages": [
                     {
                         "step": 0,
-                        "lin_vel_x": (0.0, 0.5),
-                        "lin_vel_y": (-0.08, 0.08),
+                        "lin_vel_x": (-1.0, 1.0),
                         "ang_vel_z": (-0.5, 0.5),
                     },
                     {
-                        "step": 500 * 24,
-                        "lin_vel_x": (-0.2, 0.8),
-                        "lin_vel_y": (-0.2, 0.2),
+                        "step": 5000 * 24,
+                        "lin_vel_x": (-1.0, 1.5),
+                        "ang_vel_z": (-0.7, 0.7),
+                    },
+                    {
+                        "step": 10000 * 24,
+                        "lin_vel_x": (-1.5, 2.0),
                         "ang_vel_z": (-1.0, 1.0),
-                    },
-                    {
-                        "step": 1000 * 24,
-                        "lin_vel_x": (-0.5, 1.5),
-                        "lin_vel_y": (-0.4, 0.4),
-                        "ang_vel_z": (-1.2, 1.2),
-                    },
-                    {
-                        "step": 2000 * 24,
-                        "lin_vel_x": (-0.8, 2.5),
-                        "lin_vel_y": (-0.6, 0.6),
-                        "ang_vel_z": (-2.0, 2.0),
-                    },
-                    {
-                        "step": 3000 * 24,
-                        "lin_vel_x": (-1.0, 3.0),
-                        "lin_vel_y": (-1.0, 1.0),
-                        "ang_vel_z": (-3.0, 3.0),
                     },
                 ],
             },

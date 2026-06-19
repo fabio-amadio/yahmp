@@ -115,6 +115,12 @@ class YahmpLocomotionActorModel(MLPModel):
         high_level_hidden_dims: tuple[int, ...] | list[int] = (512, 512, 256, 128),
         layer_norm: bool = True,
         rvq_num_quantizers: int = 8,
+        # Number of RVQ codebooks the high-level categorical actually drives.
+        # The RVQ itself is always built with ``rvq_num_quantizers`` layers so
+        # the frozen imitation checkpoint loads, but the categorical/lookup use
+        # only the first ``rvq_num_active_quantizers`` (hierarchical: low-index
+        # codebooks are coarse, high-index ones refine). None => use all.
+        rvq_num_active_quantizers: int | None = None,
         rvq_codebook_size: int = 1024,
         rvq_codebook_dim: int | None = None,
         rvq_shared_codebook: bool = False,
@@ -132,7 +138,12 @@ class YahmpLocomotionActorModel(MLPModel):
         self.latent_dim = int(latent_dim)
         self.layer_norm = bool(layer_norm)
         self.action_dim = int(output_dim)
-        self.num_active_codebooks = int(rvq_num_quantizers)
+        self.num_quantizers = int(rvq_num_quantizers)
+        self.num_active_codebooks = (
+            self.num_quantizers
+            if rvq_num_active_quantizers is None
+            else int(rvq_num_active_quantizers)
+        )
         self.codebook_size = int(rvq_codebook_size)
 
         if self.task_goal_obs_dim <= 0:
@@ -149,9 +160,14 @@ class YahmpLocomotionActorModel(MLPModel):
             )
         if self.latent_dim <= 0:
             raise ValueError(f"`latent_dim` must be positive, got {self.latent_dim}.")
-        if self.num_active_codebooks <= 0:
+        if self.num_quantizers <= 0:
             raise ValueError(
-                f"`rvq_num_quantizers` must be positive, got {self.num_active_codebooks}."
+                f"`rvq_num_quantizers` must be positive, got {self.num_quantizers}."
+            )
+        if not 1 <= self.num_active_codebooks <= self.num_quantizers:
+            raise ValueError(
+                "`rvq_num_active_quantizers` must be in "
+                f"[1, {self.num_quantizers}], got {self.num_active_codebooks}."
             )
         if self.codebook_size <= 0:
             raise ValueError(

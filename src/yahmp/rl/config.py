@@ -53,6 +53,11 @@ class YahmpLocomotionOnPolicyRunnerCfg(YahmpOnPolicyRunnerCfg):
   imitation_strict_load: bool = True
   imitation_copy_normalizer_proprio_history: bool = True
 
+  # Number of RVQ codebooks the high-level categorical drives (the frozen RVQ
+  # keeps all its layers for checkpoint compat). None => use all. Set e.g. 3 to
+  # test whether a coarser codebook subset still yields the same gait.
+  rvq_num_active_quantizers: int | None = None
+
   # Optional expert checkpoint (EncDec) — when provided, the locomotion actor
   # sources its proprio/history obs-normalizer stats from the expert instead
   # of the imitation checkpoint. The g_task slot is kept identity in either

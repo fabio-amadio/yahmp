@@ -464,12 +464,15 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
         if "YahmpLocomotionActorModel" not in actor_class:
             return
 
-        twist_term = None
-        try:
-            twist_term = env.unwrapped.command_manager.get_term("twist")
-        except Exception:
-            twist_term = None
-        if twist_term is None:
+        # The actor model is reused by both the velocity-tracking locomotion
+        # task ("twist" command) and the point-goal reach loco-manipulation
+        # task ("reach" command). ``goal_dim`` is derived from the actor's
+        # "command" observation term below, so we only need to confirm the env
+        # actually exposes a command manager with terms.
+        command_manager = getattr(env.unwrapped, "command_manager", None)
+        if command_manager is None or not getattr(
+            command_manager, "active_terms", None
+        ):
             return
 
         observation_manager = env.unwrapped.observation_manager
@@ -504,6 +507,10 @@ class YahmpOnPolicyRunner(MjlabOnPolicyRunner):
         actor_cfg.setdefault("high_level_hidden_dims", (512, 512, 256, 128))
         actor_cfg.setdefault("hidden_dims", (512, 512, 256, 128))
         actor_cfg.setdefault("layer_norm", True)
+        actor_cfg.setdefault(
+            "rvq_num_active_quantizers",
+            train_cfg.get("rvq_num_active_quantizers"),
+        )
 
         if "YahmpCriticModel" not in critic_class:
             return

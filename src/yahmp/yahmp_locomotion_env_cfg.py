@@ -244,7 +244,7 @@ def _rewards() -> dict[str, RewardTermCfg]:
         # the mjlab g1 velocity task (walking regime, arm joints).
         "upper_body_posture": RewardTermCfg(
             func=vel_mdp.posture,
-            weight=0.2,
+            weight=0.5,
             params={
                 "asset_cfg": SceneEntityCfg(
                     "robot",
@@ -280,8 +280,8 @@ def _rewards() -> dict[str, RewardTermCfg]:
         # action_acc_l2 the action acceleration / jerk
         # (||a_t - 2 a_{t-1} + a_{t-2}||^2). Both push the categorical toward
         # quieter actions at rest without a standing-specific gate.
-        "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-1e-1),
-        "action_acc_l2": RewardTermCfg(func=mdp.action_acc_l2, weight=-5e-2),
+        "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-1.0),
+        "action_acc_l2": RewardTermCfg(func=mdp.action_acc_l2, weight=-0.5),
         # "feet_air_time": RewardTermCfg(
         #     func=vel_mdp.feet_air_time,
         #     weight=1.0,
@@ -295,7 +295,7 @@ def _rewards() -> dict[str, RewardTermCfg]:
         # ),
         "flat_orientation_l2": RewardTermCfg(
             func=vel_mdp.flat_orientation_l2,
-            weight=-1.0,
+            weight=-5.0,
         ),
     }
 

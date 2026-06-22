@@ -386,7 +386,7 @@ def unitree_g1_yahmp_locomotion_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg
         wandb_tags=_wandb_tags("yahmp", "locomotion", "frozen_imitation", "high_level"),
         save_interval=500,
         num_steps_per_env=24,
-        max_iterations=20_000,
+        max_iterations=15_000,
         obs_groups={"actor": ("actor",), "critic": ("critic",)},
     )
 

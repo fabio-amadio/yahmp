@@ -1,6 +1,6 @@
 """RL configuration for the public Unitree G1 YAHMP tasks."""
 
-from mjlab.rl import RslRlModelCfg, RslRlPpoAlgorithmCfg
+from mjlab.rl import RslRlModelCfg, RslRlOnPolicyRunnerCfg, RslRlPpoAlgorithmCfg
 
 from yahmp.rl import (
     ImitationLossWeights,
@@ -421,6 +421,71 @@ def unitree_g1_yahmp_boxing_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg:
         "yahmp", "boxing", "strike", "frozen_imitation", "high_level"
     )
     return cfg
+
+
+def unitree_g1_yahmp_navigation_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg:
+    """Runner for the continuous point-to-point navigation task.
+
+    Identical hierarchical setup to the locomotion runner (frozen imitation
+    backbone + categorical high-level + critic); only the experiment name and
+    tags differ. The actor obs/goal dims (the navigation command is 3-D:
+    heading-frame goal x_b, y_b, dist) are derived automatically by the runner
+    from the env.
+    """
+    cfg = unitree_g1_yahmp_locomotion_runner_cfg()
+    cfg.experiment_name = "g1_yahmp_navigation"
+    cfg.wandb_tags = _wandb_tags(
+        "yahmp", "navigation", "point_to_point", "frozen_imitation", "high_level"
+    )
+    return cfg
+
+
+def unitree_g1_yahmp_balance_runner_cfg() -> RslRlOnPolicyRunnerCfg:
+    """Runner for the balance (stand-still) task.
+
+    A PLAIN continuous Gaussian-MLP policy with standard PPO -- deliberately NOT
+    the YAHMP categorical/RVQ stack (no imitation checkpoint). The continuous
+    deterministic-mean inference is what makes the stand jitter-free.
+    """
+    return RslRlOnPolicyRunnerCfg(
+        seed=1,
+        actor=RslRlModelCfg(
+            hidden_dims=(512, 256, 128),
+            activation="elu",
+            obs_normalization=True,
+            distribution_cfg={
+                "class_name": "GaussianDistribution",
+                "init_std": 1.0,
+                "std_type": "scalar",
+            },
+        ),
+        critic=RslRlModelCfg(
+            hidden_dims=(512, 256, 128),
+            activation="elu",
+            obs_normalization=True,
+        ),
+        algorithm=RslRlPpoAlgorithmCfg(
+            value_loss_coef=1.0,
+            use_clipped_value_loss=True,
+            clip_param=0.2,
+            entropy_coef=0.01,
+            num_learning_epochs=5,
+            num_mini_batches=4,
+            learning_rate=1.0e-3,
+            schedule="adaptive",
+            gamma=0.99,
+            lam=0.95,
+            desired_kl=0.01,
+            max_grad_norm=1.0,
+        ),
+        experiment_name="g1_yahmp_balance",
+        wandb_project="yahmp",
+        wandb_tags=_wandb_tags("yahmp", "balance", "stand", "continuous"),
+        save_interval=100,
+        num_steps_per_env=24,
+        max_iterations=5_000,
+        obs_groups={"actor": ("actor",), "critic": ("critic",)},
+    )
 
 
 def unitree_g1_yahmp_student_kl_matching_rl_runner_cfg() -> (

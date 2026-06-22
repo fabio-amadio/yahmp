@@ -83,6 +83,33 @@ uv run python -m yahmp.scripts.deploy.run_twist2_onnx_mujoco \
 
 ## Evaluation
 
+### `evaluate_wandb_run.py`
+
+Download a checkpoint from W&B, export it with its matching task configuration,
+and evaluate it on the motion source configured by the task:
+
+```bash
+uv run python -m yahmp.scripts.evaluation.evaluate_wandb_run \
+  --wandb-run-path entity/yahmp-hum2026/run_id \
+  --task-id Mjlab-YAHMP-Unitree-G1
+```
+
+Use the task ID corresponding to the trained alternative, for example
+`Mjlab-YAHMP-NoResidual-Unitree-G1` or
+`Mjlab-YAHMP-History20-Unitree-G1`. The script prints and records the resolved
+motion-source configuration and motion folder path. It writes the exported
+ONNX, per-motion metrics CSV, aggregate summary, and W&B evaluation metadata
+under `assets/logs/hum2026_cross_eval/`.
+
+Resume an interrupted evaluation without reprocessing completed motions:
+
+```bash
+uv run python -m yahmp.scripts.evaluation.evaluate_wandb_run \
+  --wandb-run-path entity/yahmp-hum2026/run_id \
+  --task-id Mjlab-YAHMP-Unitree-G1 \
+  --resume True
+```
+
 ### `evaluate_yahmp_onnx_success_parallel.py`
 
 Evaluate a base YAHMP ONNX checkpoint over all the motions:

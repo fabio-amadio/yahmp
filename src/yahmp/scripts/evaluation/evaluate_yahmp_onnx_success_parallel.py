@@ -368,6 +368,8 @@ def run(cfg: EvaluateYahmpOnnxSuccessParallelConfig) -> dict[str, Any]:
   output_dir = Path(cfg.output_dir).expanduser().resolve()
   output_dir.mkdir(parents=True, exist_ok=True)
   csv_path = output_dir / "per_motion_success.csv"
+  if not cfg.resume and csv_path.exists():
+    csv_path.unlink()
   start = max(int(cfg.start_motion_index), 0)
   stop = len(motion_files)
   if cfg.max_motions is not None:

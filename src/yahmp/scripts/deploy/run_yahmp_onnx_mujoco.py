@@ -6,6 +6,7 @@ import argparse
 import json
 import time
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -35,8 +36,12 @@ def _yahmp_task_ids() -> tuple[str, ...]:
     "Mjlab-YAHMP-NoHistory-Unitree-G1",
     "Mjlab-YAHMP-NoResidual-Unitree-G1",
     "Mjlab-YAHMP-QOnly-Unitree-G1",
+    "Mjlab-YAHMP-QOnly-NoHistory-Unitree-G1",
     "Mjlab-YAHMP-StiffPD-Unitree-G1",
     "Mjlab-YAHMP-Future-Unitree-G1",
+    "Mjlab-YAHMP-Teacher-Unitree-G1",
+    "Mjlab-YAHMP-Student-RL+Action-Matching-Unitree-G1",
+    "Mjlab-YAHMP-Student-RL+KL-Matching-Unitree-G1",
   )
   available = set(list_tasks())
   return tuple(task_id for task_id in preferred if task_id in available)
@@ -180,6 +185,7 @@ class PolicySpec:
       "JointRefAnchorRpMotionCommand",
       "JointRefOnlyAnchorRpMotionCommand",
       "FutureJointRefAnchorRpMotionCommand",
+      "TeacherStudentJointRefAnchorRpMotionCommand",
     }:
       raise NotImplementedError(
         "This script supports only YAHMP JointRefAnchorRp-derived commands, got "
@@ -556,6 +562,102 @@ def _root_kinematics(
   )
 
 
+@lru_cache(maxsize=None)
+def _body_ids(model: mujoco.MjModel, body_names: tuple[str, ...]) -> tuple[int, ...]:
+  return tuple(
+    _resolve_id(model, mujoco.mjtObj.mjOBJ_BODY, body_name) for body_name in body_names
+  )
+
+
+def _rot6d_from_quat(quat_wxyz: np.ndarray) -> np.ndarray:
+  rotation = _quat_to_rotmat(quat_wxyz)
+  return rotation[:, :2].T.reshape(-1)
+
+
+def _is_descendant_body(model: mujoco.MjModel, body_id: int, root_id: int) -> bool:
+  current = int(body_id)
+  while current > 0:
+    if current == root_id:
+      return True
+    current = int(model.body_parentid[current])
+  return current == root_id
+
+
+def _feet_contact_mask(model: mujoco.MjModel, data: mujoco.MjData) -> np.ndarray:
+  ankle_names = ("left_ankle_roll_link", "right_ankle_roll_link")
+  ankle_ids = _body_ids(model, ankle_names)
+  found = np.zeros(len(ankle_ids), dtype=np.float32)
+  for contact_idx in range(int(data.ncon)):
+    contact = data.contact[contact_idx]
+    body_1 = int(model.geom_bodyid[int(contact.geom1)])
+    body_2 = int(model.geom_bodyid[int(contact.geom2)])
+    for slot, ankle_id in enumerate(ankle_ids):
+      if (body_1 == 0 and _is_descendant_body(model, body_2, ankle_id)) or (
+        body_2 == 0 and _is_descendant_body(model, body_1, ankle_id)
+      ):
+        found[slot] = 1.0
+  return found
+
+
+def _feet_friction_coeff(model: mujoco.MjModel) -> np.ndarray:
+  ankle_ids = _body_ids(model, ("left_ankle_roll_link", "right_ankle_roll_link"))
+  geom_ids = [
+    geom_id
+    for geom_id in range(model.ngeom)
+    if any(
+      _is_descendant_body(model, int(model.geom_bodyid[geom_id]), ankle_id)
+      for ankle_id in ankle_ids
+    )
+  ]
+  if not geom_ids:
+    return np.asarray([0.0], dtype=np.float32)
+  return np.asarray(
+    [float(np.asarray(model.geom_friction)[geom_ids, 0].mean())],
+    dtype=np.float32,
+  )
+
+
+def _privileged_term_values(
+  model: mujoco.MjModel,
+  data: mujoco.MjData,
+  spec: PolicySpec,
+  frame: MotionFrame,
+) -> dict[str, np.ndarray]:
+  root_id = _resolve_id(model, mujoco.mjtObj.mjOBJ_BODY, spec.root_body_name)
+  root_pos_w = np.asarray(data.xpos[root_id], dtype=np.float64)
+  root_quat_w = np.asarray(data.xquat[root_id], dtype=np.float64)
+
+  anchor_pos_b = _quat_rotate_inverse(
+    root_quat_w, np.asarray(frame.root_pos_w, dtype=np.float64) - root_pos_w
+  )
+  anchor_quat_b = _quat_mul(_quat_conj(root_quat_w), frame.root_quat_w)
+
+  body_ids = _body_ids(model, spec.body_names)
+  body_pos_b = []
+  body_ori_b = []
+  for body_id in body_ids:
+    body_pos_b.append(
+      _quat_rotate_inverse(
+        root_quat_w,
+        np.asarray(data.xpos[body_id], dtype=np.float64) - root_pos_w,
+      )
+    )
+    body_quat_b = _quat_mul(
+      _quat_conj(root_quat_w),
+      np.asarray(data.xquat[body_id], dtype=np.float64),
+    )
+    body_ori_b.append(_rot6d_from_quat(body_quat_b))
+
+  return {
+    "motion_anchor_pos_b": anchor_pos_b.astype(np.float32),
+    "motion_anchor_ori_b": _rot6d_from_quat(anchor_quat_b).astype(np.float32),
+    "body_pos": np.concatenate(body_pos_b).astype(np.float32),
+    "body_ori": np.concatenate(body_ori_b).astype(np.float32),
+    "feet_contact_mask": _feet_contact_mask(model, data),
+    "friction_coeff": _feet_friction_coeff(model),
+  }
+
+
 def _command_value(
   spec: PolicySpec,
   clip: MotionClip,
@@ -617,7 +719,7 @@ def _term_values(
   gravity_w = np.asarray(model.opt.gravity, dtype=np.float64)
   gravity_w = gravity_w / max(np.linalg.norm(gravity_w), 1.0e-12)
 
-  return {
+  terms = {
     "command": _command_value(spec, clip, time_s, frame),
     "base_lin_vel": base_lin_vel_b.astype(np.float32),
     "base_ang_vel": base_ang_vel_b.astype(np.float32),
@@ -630,20 +732,33 @@ def _term_values(
     ),
     "actions": previous_action.astype(np.float32),
   }
+  privileged_names = {
+    "motion_anchor_pos_b",
+    "motion_anchor_ori_b",
+    "body_pos",
+    "body_ori",
+    "feet_contact_mask",
+    "friction_coeff",
+  }
+  observation_names = {term.name for term in spec.observation_terms}
+  if observation_names & privileged_names:
+    terms.update(_privileged_term_values(model, data, spec, frame))
+  return terms
 
 
 def _current_observation_block(
   spec: PolicySpec,
   terms: dict[str, np.ndarray],
+  expected_dim: int | None = None,
 ) -> np.ndarray:
-  """Return YAHMP's deployment-ready current block used by its history term."""
+  """Return the current block stored by a YAHMP history observation."""
   command = terms["command"]
   first_step_command = (
     command[: spec.motion_command_step_dim]
     if spec.motion_command_num_steps > 1
     else command
   )
-  return np.concatenate(
+  deployable = np.concatenate(
     (
       first_step_command,
       terms["base_ang_vel"],
@@ -653,6 +768,32 @@ def _current_observation_block(
       terms["actions"],
     )
   ).astype(np.float32)
+  candidates = [deployable]
+  privileged_names = (
+    "base_lin_vel",
+    "motion_anchor_pos_b",
+    "motion_anchor_ori_b",
+    "body_pos",
+    "body_ori",
+    "feet_contact_mask",
+    "friction_coeff",
+  )
+  if all(name in terms for name in privileged_names):
+    candidates.append(
+      np.concatenate((deployable, *(terms[name] for name in privileged_names))).astype(
+        np.float32
+      )
+    )
+
+  if expected_dim is None:
+    return deployable
+  for candidate in reversed(candidates):
+    if candidate.shape == (expected_dim,):
+      return candidate
+  raise ValueError(
+    "Cannot construct YAHMP history block with expected dim "
+    f"{expected_dim}; candidate dims are {[item.shape[0] for item in candidates]}."
+  )
 
 
 def _initialize_history(
@@ -665,13 +806,30 @@ def _initialize_history(
         terms[term.name][None, :], term.history_length, axis=0
       ).astype(np.float32)
     elif term.name == "history" and term.name not in terms:
-      current = _current_observation_block(spec, terms)
-      if term.flat_dim % current.shape[0] != 0:
+      deployable_dim = _current_observation_block(spec, terms).shape[0]
+      candidate_dims = [deployable_dim]
+      privileged_names = (
+        "base_lin_vel",
+        "motion_anchor_pos_b",
+        "motion_anchor_ori_b",
+        "body_pos",
+        "body_ori",
+        "feet_contact_mask",
+        "friction_coeff",
+      )
+      if all(name in terms for name in privileged_names):
+        candidate_dims.append(
+          deployable_dim + sum(terms[name].shape[0] for name in privileged_names)
+        )
+      valid_dims = [dim for dim in candidate_dims if term.flat_dim % dim == 0]
+      if not valid_dims:
         raise ValueError(
           "Cannot initialize YAHMP history term: "
-          f"history dim={term.flat_dim}, current block dim={current.shape[0]}."
+          f"history dim={term.flat_dim}, candidate block dims={candidate_dims}."
         )
-      history_length = term.flat_dim // current.shape[0]
+      current_dim = valid_dims[-1]
+      current = _current_observation_block(spec, terms, expected_dim=current_dim)
+      history_length = term.flat_dim // current_dim
       history[term.name] = np.repeat(current[None, :], history_length, axis=0).astype(
         np.float32
       )
@@ -687,7 +845,9 @@ def _append_history(
     if term.history_length <= 0:
       if term.name == "history" and term.name in history and term.name not in terms:
         history[term.name][:-1] = history[term.name][1:]
-        history[term.name][-1] = _current_observation_block(spec, terms)
+        history[term.name][-1] = _current_observation_block(
+          spec, terms, expected_dim=history[term.name].shape[1]
+        )
       continue
     history[term.name][:-1] = history[term.name][1:]
     history[term.name][-1] = terms[term.name]

@@ -100,9 +100,6 @@ class YahmpLocomotionActorModel(MLPModel):
         hidden_dims: tuple[int, ...] | list[int] = (512, 512, 256, 128),
         activation: str = "elu",
         obs_normalization: bool = True,
-        # Accepted for API parity with rl_cfg; not used (we attach our own
-        # MultiCategoricalDistribution sized from ``rvq_num_quantizers`` and
-        # ``rvq_codebook_size``).
         distribution_cfg: dict | None = None,
         task_goal_obs_dim: int = 0,
         proprio_obs_dim: int = 0,

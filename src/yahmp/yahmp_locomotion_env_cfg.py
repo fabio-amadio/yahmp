@@ -168,7 +168,7 @@ def _events() -> dict[str, EventTermCfg]:
             func=vel_mdp.reset_joints_by_offset,
             mode="reset",
             params={
-                "position_range": (-0.0 , 0.0),
+                "position_range": (-0.0, 0.0),
                 "velocity_range": (0.0, 0.0),
                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
             },
@@ -176,7 +176,7 @@ def _events() -> dict[str, EventTermCfg]:
         "push_robot": EventTermCfg(
             func=mdp.push_by_setting_velocity,
             mode="interval",
-            interval_range_s=(1.0, 3.0),
+            interval_range_s=(3.0, 6.0),
             params={"velocity_range": PUSH_VELOCITY_RANGE},
         ),
         "base_com": EventTermCfg(
@@ -233,15 +233,6 @@ def _rewards() -> dict[str, RewardTermCfg]:
             weight=2.0,
             params={"command_name": TWIST_COMMAND_NAME, "std": math.sqrt(0.5)},
         ),
-        # Upper-body home-pose regularisation. The categorical policy has no
-        # goal for the arms, so PPO recruits them for balance/exploration,
-        # producing tremor and erratic upper-body motion on top of an
-        # otherwise-decent gait. This anchors shoulders/elbows/wrists to the
-        # home pose (the residual baseline, use_default_offset=True) with
-        # exp(-mean(err^2/std^2)) -- mjlab's `posture` reward. Weight is 10x
-        # below the tracking terms (0.2 vs 2.0) so it silences the arms
-        # without competing with velocity tracking. Std values copied from
-        # the mjlab g1 velocity task (walking regime, arm joints).
         "upper_body_posture": RewardTermCfg(
             func=vel_mdp.posture,
             weight=0.2,
@@ -265,21 +256,11 @@ def _rewards() -> dict[str, RewardTermCfg]:
                 },
             },
         ),
-        # Penalise robot self-collisions (e.g. an arm intersecting the torso
-        # or legs). Returns the count of detected self-contacts; requires the
-        # `self_collision` sensor and the FULL_COLLISION preset, both enabled
-        # in config/g1/env_cfgs.py. Without those the signal is always zero.
-        "self_collisions": RewardTermCfg(
-            func=mdp.self_collision_cost,
-            weight=-0.5,
-            params={"sensor_name": "self_collision"},
-        ),
-        # Action smoothness penalties to attenuate the standing jitter seen on
-        # the real robot. Same terms/weights added to the expert EncDec env:
-        # action_rate_l2 penalises the action velocity (||a_t - a_{t-1}||^2),
-        # action_acc_l2 the action acceleration / jerk
-        # (||a_t - 2 a_{t-1} + a_{t-2}||^2). Both push the categorical toward
-        # quieter actions at rest without a standing-specific gate.
+        # "self_collisions": RewardTermCfg(
+        #     func=mdp.self_collision_cost,
+        #     weight=-0.5,
+        #     params={"sensor_name": "self_collision"},
+        # ),
         # "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.1),
         # "action_acc_l2": RewardTermCfg(func=mdp.action_acc_l2, weight=-0.05),
         # "feet_air_time": RewardTermCfg(

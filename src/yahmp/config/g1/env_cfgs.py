@@ -365,3 +365,34 @@ def unitree_g1_yahmp_boxing_env_cfg(
     from yahmp.yahmp_boxing_env_cfg import make_boxing_env_cfg
 
     return _apply_unitree_g1_locomotion_overrides(make_boxing_env_cfg(), play=play)
+
+
+def unitree_g1_yahmp_balance_env_cfg(
+    play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+    """Create the Unitree G1 YAHMP balance (stand-still) configuration.
+
+    Shares the locomotion robot/sensor/DR overrides verbatim; only the velocity
+    command (pinned to zero) and the reward (stand-only) differ, defined in
+    ``make_balance_env_cfg``. Trained with a plain continuous policy (not the
+    RVQ high-level) so it stands without the categorical jitter.
+    """
+    from yahmp.yahmp_balance_env_cfg import make_balance_env_cfg
+
+    return _apply_unitree_g1_locomotion_overrides(make_balance_env_cfg(), play=play)
+
+
+def unitree_g1_yahmp_navigation_env_cfg(
+    play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+    """Create the Unitree G1 YAHMP point-to-point navigation configuration.
+
+    Continuous goal-reaching: a ground goal is resampled the instant the base
+    reaches it, so the robot is kept perpetually walking (structural
+    anti-standstill). Shares the locomotion robot/sensor/DR overrides
+    (FULL_COLLISION + ``self_collision`` sensor); the command, rewards and
+    curriculum differ, defined in ``make_navigation_env_cfg``.
+    """
+    from yahmp.yahmp_navigation_env_cfg import make_navigation_env_cfg
+
+    return _apply_unitree_g1_locomotion_overrides(make_navigation_env_cfg(), play=play)

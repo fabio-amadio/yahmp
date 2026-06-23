@@ -256,11 +256,11 @@ def _rewards() -> dict[str, RewardTermCfg]:
                 },
             },
         ),
-        # "self_collisions": RewardTermCfg(
-        #     func=mdp.self_collision_cost,
-        #     weight=-0.5,
-        #     params={"sensor_name": "self_collision"},
-        # ),
+        "self_collisions": RewardTermCfg(
+            func=mdp.self_collision_cost,
+            weight=-0.5,
+            params={"sensor_name": "self_collision"},
+        ),
         # "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.1),
         # "action_acc_l2": RewardTermCfg(func=mdp.action_acc_l2, weight=-0.05),
         # "feet_air_time": RewardTermCfg(

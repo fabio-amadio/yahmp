@@ -42,7 +42,7 @@ NAVIGATION_COMMAND_NAME = "navigate"
 def _navigation_command_cfg() -> mdp.NavigationGoalCommandCfg:
     return mdp.NavigationGoalCommandCfg(
         entity_name="robot",
-        resampling_time_range=(8.0, 15.0),
+        resampling_time_range=(20.0, 30.0),
         debug_vis=True,
         distance_range=(8.0, 10.0),
         angle_range=(0.0, 0.5),
@@ -77,8 +77,7 @@ def _rewards() -> dict[str, RewardTermCfg]:
             params={
                 "command_name": NAVIGATION_COMMAND_NAME,
                 "std": 0.5,
-                "cruise_speed": 1.5,
-                "slowdown_radius": 1.0,
+                "cruise_speed": 2.0,
             },
         ),
         "nav_position_tracking": RewardTermCfg(
@@ -97,6 +96,13 @@ def _rewards() -> dict[str, RewardTermCfg]:
             weight=3.0,
             params={"command_name": NAVIGATION_COMMAND_NAME},
         ),
+        "self_collision": RewardTermCfg(
+            func=mdp.self_collision_cost,
+            weight=-0.5,
+            params={
+                "sensor_name": "self_collision"
+            },  # reintrodotto usando backbone senza self-collision
+        ),
         # "feet_air_time": RewardTermCfg(
         #     func=vel_mdp.feet_air_time,
         #     weight=1.0,
@@ -107,10 +113,10 @@ def _rewards() -> dict[str, RewardTermCfg]:
         #         "command_name": None,
         #     },
         # ),
-        # "flat_orientation_l2": RewardTermCfg(
-        #     func=vel_mdp.flat_orientation_l2,
-        #     weight=-2.5,
-        # ),
+        "flat_orientation_l2": RewardTermCfg(
+            func=vel_mdp.flat_orientation_l2,
+            weight=-2.5,
+        ),
         # "upper_body_posture": RewardTermCfg(
         #     func=vel_mdp.posture,
         #     weight=0.2,
@@ -210,7 +216,7 @@ def make_navigation_env_cfg() -> ManagerBasedRlEnvCfg:
 
     cfg.rewards = _rewards()
     cfg.curriculum = _curriculum()
-    cfg.episode_length_s = 15.0
+    cfg.episode_length_s = 20.0
 
     commands: dict[str, CommandTermCfg] = cfg.commands  # type: ignore[assignment]
     assert NAVIGATION_COMMAND_NAME in commands

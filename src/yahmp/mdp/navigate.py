@@ -106,8 +106,7 @@ class NavigationGoalCommand(CommandTerm):
 
         # Reset the potential baseline so the resample step yields zero progress.
         new_dist = torch.norm(
-            self.robot.data.root_link_pos_w[env_ids, :2]
-            - self.target_pos_w[env_ids],
+            self.robot.data.root_link_pos_w[env_ids, :2] - self.target_pos_w[env_ids],
             dim=-1,
         )
         self.distance[env_ids] = new_dist
@@ -235,17 +234,17 @@ def nav_velocity_tracking_exp(
     command_name: str,
     std: float,
     cruise_speed: float = 1.5,
-    slowdown_radius: float = 1.0,
+    # slowdown_radius: float = 1.0,
 ) -> torch.Tensor:
     """Reward tracking a velocity that points at the goal -- the gait-discipline
     driver (replaces the unregularised ``nav_progress``).
 
     This is locomotion's velocity-tracking bowl, except the velocity target is
     NOT an external command: it is DERIVED here from the goal position the policy
-    already observes. The desired planar velocity (world frame) is
-    ``cruise_speed`` along the unit vector to the goal, linearly tapered to zero
-    inside ``slowdown_radius`` so the robot BRAKES onto the point instead of
-    overshooting ``reach_tol``. We reward ``exp(-||v_des - v_actual||^2/std^2)``.
+    already observes. The desired planar velocity (world frame) is a CONSTANT
+    ``cruise_speed`` along the unit vector to the goal (no slowdown): we want the
+    robot to keep RUNNING through the point and rack up as many reaches as
+    possible, not brake/stop on it. We reward ``exp(-||v_des - v_actual||^2/std^2)``.
 
     Why this and not ``nav_progress``: progress is a monotone ramp ("close
     distance as fast as possible"), whose cheapest optimum is a fall-forward
@@ -261,9 +260,9 @@ def nav_velocity_tracking_exp(
     to_goal = command.target_pos_w - root_xy
     dist = torch.norm(to_goal, dim=-1).clamp_min(1e-6)
     direction = to_goal / dist.unsqueeze(-1)
-    # Cruise far out, ramp down to 0 within slowdown_radius -> brake onto goal.
-    speed = torch.clamp(cruise_speed * dist / slowdown_radius, max=cruise_speed)
-    v_des = direction * speed.unsqueeze(-1)
+    # Constant cruise toward the goal: no slowdown -> the robot keeps RUNNING
+    # through the point and racks up reaches, it does not brake/stop on it.
+    v_des = direction * cruise_speed
     v_act = command.robot.data.root_link_lin_vel_w
     xy_error = torch.sum(torch.square(v_des - v_act[:, :2]), dim=-1)
     z_error = torch.square(v_act[:, 2])

@@ -110,6 +110,22 @@ uv run python -m yahmp.scripts.evaluation.evaluate_wandb_run \
   --resume True
 ```
 
+### `analyze_hum2026_evaluations.py`
+
+Analyze all completed Humanoids 2026 policy evaluations with descriptive
+statistics, paired differences, per-motion win rates, and Holm-corrected
+significance tests:
+
+```bash
+uv run python -m yahmp.scripts.evaluation.analyze_hum2026_evaluations
+```
+
+The default output folder is `assets/logs/hum2026_cross_eval/analysis/`. The
+generated Markdown report highlights strong findings and ablations whose
+headline metrics remain inconclusive. Tracking and torque comparisons are
+computed on motions completed successfully by both policies; success and
+completion use all common valid motions.
+
 ### `evaluate_yahmp_onnx_success_parallel.py`
 
 Evaluate a base YAHMP ONNX checkpoint over all the motions:

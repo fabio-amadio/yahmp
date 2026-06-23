@@ -101,6 +101,15 @@ motion-source configuration and motion folder path. It writes the exported
 ONNX, per-motion metrics CSV, aggregate summary, and W&B evaluation metadata
 under `assets/logs/hum2026_cross_eval/`.
 
+Use a local checkpoint instead of the checkpoint stored on W&B:
+
+```bash
+uv run python -m yahmp.scripts.evaluation.evaluate_wandb_run \
+  --task-id Mjlab-YAHMP-Unitree-G1 \
+  --checkpoint-file /path/to/model_latest.pt \
+  --force-export True
+```
+
 Resume an interrupted evaluation without reprocessing completed motions:
 
 ```bash

@@ -33,8 +33,9 @@ DEFAULT_OUTPUT_ROOT = REPO_ROOT / "assets/logs/hum2026_cross_eval"
 class EvaluateWandbRunConfig:
   """Configuration for W&B checkpoint export and held-out motion evaluation."""
 
-  wandb_run_path: str
   task_id: str
+  wandb_run_path: str | None = None
+  checkpoint_file: str | None = None
   wandb_checkpoint_name: str | None = None
   motion_source: str | None = None
   output_dir: str | None = None
@@ -65,9 +66,9 @@ def _run_id(wandb_run_path: str) -> str:
   return parts[-1]
 
 
-def _default_output_dir(task_id: str, wandb_run_path: str) -> Path:
+def _default_output_dir(task_id: str, run_name: str) -> Path:
   task_slug = _slug(task_id.removeprefix("Mjlab-").removesuffix("-Unitree-G1"))
-  return DEFAULT_OUTPUT_ROOT / task_slug / _slug(_run_id(wandb_run_path))
+  return DEFAULT_OUTPUT_ROOT / task_slug / _slug(run_name)
 
 
 def _write_metadata(path: Path, payload: dict[str, Any]) -> None:
@@ -93,16 +94,28 @@ def run(cfg: EvaluateWandbRunConfig) -> dict[str, Any]:
   _validate_task_id(cfg.task_id)
   agent_cfg = load_rl_cfg(cfg.task_id)
   log_root = (REPO_ROOT / "logs/rsl_rl" / agent_cfg.experiment_name).resolve()
-  checkpoint_path, was_cached = get_wandb_checkpoint_path(
-    log_root,
-    Path(cfg.wandb_run_path),
-    cfg.wandb_checkpoint_name,
-  )
+  if cfg.checkpoint_file is not None:
+    checkpoint_path = Path(cfg.checkpoint_file).expanduser().resolve()
+    if not checkpoint_path.is_file():
+      raise FileNotFoundError(f"Local checkpoint not found: {checkpoint_path}")
+    was_cached = False
+    checkpoint_source = "local"
+    run_id = checkpoint_path.parent.name
+  else:
+    if cfg.wandb_run_path is None:
+      raise ValueError("Provide either `--checkpoint-file` or `--wandb-run-path`.")
+    checkpoint_path, was_cached = get_wandb_checkpoint_path(
+      log_root,
+      Path(cfg.wandb_run_path),
+      cfg.wandb_checkpoint_name,
+    )
+    checkpoint_source = "wandb"
+    run_id = _run_id(cfg.wandb_run_path)
 
   output_dir = (
     Path(cfg.output_dir).expanduser().resolve()
     if cfg.output_dir is not None
-    else _default_output_dir(cfg.task_id, cfg.wandb_run_path).resolve()
+    else _default_output_dir(cfg.task_id, run_id).resolve()
   )
   output_dir.mkdir(parents=True, exist_ok=True)
   onnx_path = output_dir / "policy.onnx"
@@ -110,7 +123,8 @@ def run(cfg: EvaluateWandbRunConfig) -> dict[str, Any]:
   resolved_motion_source = resolve_motion_source(cfg.task_id, cfg.motion_source)
   motion_files = resolve_motion_files(resolved_motion_source)
   motion_folders = sorted({str(path.parent) for path in motion_files})
-  print(f"[INFO] W&B run: {cfg.wandb_run_path}")
+  if cfg.wandb_run_path is not None:
+    print(f"[INFO] W&B run: {cfg.wandb_run_path}")
   print(f"[INFO] Task ID: {cfg.task_id}")
   print(f"[INFO] Checkpoint: {checkpoint_path}")
   print(f"[INFO] Motion source config: {resolved_motion_source}")
@@ -150,9 +164,10 @@ def run(cfg: EvaluateWandbRunConfig) -> dict[str, Any]:
   metadata: dict[str, Any] = {
     "wandb": {
       "run_path": cfg.wandb_run_path,
-      "run_id": _run_id(cfg.wandb_run_path),
+      "run_id": run_id,
       "checkpoint_name": checkpoint_path.name,
       "checkpoint_path": str(checkpoint_path.resolve()),
+      "checkpoint_source": checkpoint_source,
       "checkpoint_was_cached": was_cached,
     },
     "policy": {

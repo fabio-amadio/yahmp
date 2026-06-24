@@ -83,6 +83,32 @@ uv run python -m yahmp.scripts.deploy.run_twist2_onnx_mujoco \
 
 ## Evaluation
 
+### `analyze_hardware_motion_log.py`
+
+Analyze only the `motion` phase of a real-robot motion-imitation log:
+
+```bash
+uv run python -m yahmp.scripts.evaluation.analyze_hardware_motion_log \
+  paper/log/g1_motion_imitation/<run>/<log>.npz
+```
+
+Add `--plot-joint-angles` to save measured, reference, and commanded joint-angle
+trajectories. Use `--joints <joint-name> ...` to restrict the plot to selected
+joints.
+
+### `plot_hardware_stance_joint.py`
+
+Plot one joint during only the `hold` phase of a predefined-stance hardware log:
+
+```bash
+uv run python -m yahmp.scripts.evaluation.plot_hardware_stance_joint \
+  paper/log/g1_predefined_stance/<run>/<log>.npz
+```
+
+The default is `right_elbow_joint`. Select another joint with
+`--joint <joint-name>`. Separate joint-angle and estimated-torque PNGs are
+written next to the log unless `--output-dir` is provided.
+
 ### `evaluate_wandb_run.py`
 
 Download a checkpoint from W&B, export it with its matching task configuration,
@@ -134,6 +160,28 @@ generated Markdown report highlights strong findings and ablations whose
 headline metrics remain inconclusive. Tracking and torque comparisons are
 computed on motions completed successfully by both policies; success and
 completion use all common valid motions.
+
+### `aggregate_hardware_motion_logs.py`
+
+Aggregate the real-robot motion-imitation logs while excluding StiffPD,
+soft-ground, and incomplete executions:
+
+```bash
+uv run python -m yahmp.scripts.evaluation.aggregate_hardware_motion_logs \
+  paper/log/g1_motion_imitation
+```
+
+The report includes execution counts, reference-motion coverage, local joint
+tracking, base-frame key-body tracking computed through G1 forward kinematics,
+servo tracking, and all-, lower-, and upper-body estimated torque statistics.
+It reports both motion-balanced statistics and statistics across all
+executions. Save the per-execution values for later analysis with:
+
+```bash
+uv run python -m yahmp.scripts.evaluation.aggregate_hardware_motion_logs \
+  paper/log/g1_motion_imitation \
+  --csv paper/log/hardware_motion_metrics.csv
+```
 
 ### `evaluate_yahmp_onnx_success_parallel.py`
 

@@ -46,7 +46,8 @@ uv run python scripts/play_quantizer_ramp.py \
   Mjlab-YAHMP-Locomotion-Unitree-G1 \
   --checkpoint-file /home/famadio/Workspace/2026-06-24_10-05-40_Loco-Quant-5/model_4999.pt \
   --imitation-checkpoint-file assets/models/multi_task/imitation_rvq_model.pt \
-  --rvq-num-active-quantizers 5
+  --rvq-num-active-quantizers 5 \
+  --azimuth 120
 ```
 
 Useful overrides:

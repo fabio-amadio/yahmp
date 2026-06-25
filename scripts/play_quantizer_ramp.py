@@ -50,7 +50,7 @@ class Config:
 
     start_vx: float = 0.3
     end_vx: float = 3.0
-    stand_s: float = 3.0
+    stand_s: float = 0.0
     ramp_s: float = 20.0
     hold_s: float = 10.0
     """Forward command schedule: stand, linearly ramp vx, then hold end_vx."""
@@ -72,6 +72,11 @@ class Config:
     video_height: int | None = None
     video_width: int | None = None
     """Optional offscreen render resolution."""
+
+    azimuth: float | None = None
+    elevation: float | None = None
+    distance: float | None = None
+    """Optional camera overrides in degrees/meters."""
 
     no_terminations: bool = True
     """Disable terminations for a clean demo."""
@@ -123,8 +128,33 @@ def _configure_demo_env(env_cfg, *, episode_length_s: float, no_terminations: bo
     env_cfg.scene.num_envs = 1
     env_cfg.episode_length_s = episode_length_s
 
+    reset_base = env_cfg.events.get("reset_base")
+    if reset_base is not None:
+        reset_base.params["pose_range"] = {
+            "x": (0.0, 0.0),
+            "y": (0.0, 0.0),
+            "z": (0.0, 0.0),
+            "roll": (0.0, 0.0),
+            "pitch": (0.0, 0.0),
+            "yaw": (0.0, 0.0),
+        }
+        reset_base.params["velocity_range"] = {}
+    reset_joints = env_cfg.events.get("reset_robot_joints")
+    if reset_joints is not None:
+        reset_joints.params["position_range"] = (0.0, 0.0)
+        reset_joints.params["velocity_range"] = (0.0, 0.0)
+
     if no_terminations:
         env_cfg.terminations = {}
+
+
+def _configure_camera(env_cfg, cfg: Config) -> None:
+    if cfg.azimuth is not None:
+        env_cfg.viewer.azimuth = cfg.azimuth
+    if cfg.elevation is not None:
+        env_cfg.viewer.elevation = cfg.elevation
+    if cfg.distance is not None:
+        env_cfg.viewer.distance = cfg.distance
 
 
 def _ramp_command(t: float, cfg: Config) -> tuple[float, str]:
@@ -177,6 +207,7 @@ def main() -> None:
         env_cfg.viewer.height = cfg.video_height
     if cfg.video_width is not None:
         env_cfg.viewer.width = cfg.video_width
+    _configure_camera(env_cfg, cfg)
     _configure_demo_env(
         env_cfg,
         episode_length_s=episode_length_s,

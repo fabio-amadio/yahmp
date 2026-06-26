@@ -55,6 +55,18 @@ class Config:
     hold_s: float = 10.0
     """Forward command schedule: stand, linearly ramp vx, then hold end_vx."""
 
+    heading_hold: bool = True
+    """Set commanded yaw rate from heading error instead of keeping wz at zero."""
+
+    heading_target: float = 0.0
+    """Target world heading in radians."""
+
+    heading_stiffness: float = 0.5
+    """Proportional gain: wz_cmd = heading_stiffness * heading_error."""
+
+    heading_max_wz: float = 1.0
+    """Absolute clamp for the heading-control yaw-rate command."""
+
     device: str | None = None
     viewer: Literal["auto", "native", "viser"] = "auto"
     duration_s: float | None = None
@@ -165,6 +177,10 @@ def _ramp_command(t: float, cfg: Config) -> tuple[float, str]:
     if ramp_t < 1.0:
         return vx, "ramping"
     return cfg.end_vx, "holding"
+
+
+def _wrap_to_pi(angle: torch.Tensor) -> torch.Tensor:
+    return torch.atan2(torch.sin(angle), torch.cos(angle))
 
 
 def main() -> None:
@@ -286,16 +302,29 @@ def main() -> None:
 
         t = state["step_idx"] * step_dt
         vx, label = _ramp_command(t, cfg)
+        if cfg.heading_hold:
+            heading_error = _wrap_to_pi(cfg.heading_target - twist_term.robot.data.heading_w)
+            wz = torch.clamp(
+                cfg.heading_stiffness * heading_error,
+                min=-cfg.heading_max_wz,
+                max=cfg.heading_max_wz,
+            )
+        else:
+            wz = torch.zeros_like(twist_term.vel_command_b[:, 2])
         twist_term.vel_command_b[:, 0] = vx
         twist_term.vel_command_b[:, 1] = 0.0
-        twist_term.vel_command_b[:, 2] = 0.0
+        twist_term.vel_command_b[:, 2] = wz
 
         whole_second = int(math.floor(t))
         should_print = label != state["label"] or (
             whole_second % 5 == 0 and whole_second != state["last_print_second"]
         )
         if should_print:
-            print(f"[t={t:7.2f}s] {label:8s} cmd=(vx={vx:+.2f}, vy=+0.00, wz=+0.00)")
+            wz_print = float(wz[0].detach().cpu())
+            print(
+                f"[t={t:7.2f}s] {label:8s} "
+                f"cmd=(vx={vx:+.2f}, vy=+0.00, wz={wz_print:+.2f})"
+            )
             state["label"] = label
             state["last_print_second"] = whole_second
         state["step_idx"] += 1
@@ -318,6 +347,15 @@ def main() -> None:
         f"stand {cfg.stand_s:.1f}s, vx {cfg.start_vx:.2f}->{cfg.end_vx:.2f} "
         f"over {cfg.ramp_s:.1f}s, hold {cfg.hold_s:.1f}s"
     )
+    if cfg.heading_hold:
+        print(
+            "[INFO] Heading hold: "
+            f"target={cfg.heading_target:.2f} rad, "
+            f"stiffness={cfg.heading_stiffness:.2f}, "
+            f"max_wz={cfg.heading_max_wz:.2f} rad/s"
+        )
+    else:
+        print("[INFO] Heading hold disabled: wz command fixed to 0.")
     if cfg.video:
         assert video_steps is not None
         print(f"[INFO] Video: {video_path} ({video_steps} steps)")

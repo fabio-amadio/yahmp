@@ -36,7 +36,8 @@ for all options.
 ## Quantizer ramp viewer
 
 `play_quantizer_ramp.py` opens a viewer for one locomotion checkpoint and sends
-the robot a forward command ramp.
+the robot a forward command ramp. By default, the yaw-rate command is computed
+with a heading controller that tries to keep world heading at `0` radians.
 Pass the policy checkpoint explicitly. The active quantizer count can also be
 passed explicitly; if omitted, the script tries to infer it from checkpoint
 paths containing names like `Loco-Quant-5` or `quant_5`.
@@ -47,7 +48,7 @@ uv run python scripts/play_quantizer_ramp.py \
   --checkpoint-file /home/famadio/Workspace/2026-06-24_10-05-40_Loco-Quant-5/model_4999.pt \
   --imitation-checkpoint-file assets/models/multi_task/imitation_rvq_model.pt \
   --rvq-num-active-quantizers 5 \
-  --azimuth 120
+  --azimuth 140
 ```
 
 Useful overrides:
@@ -59,8 +60,13 @@ uv run python scripts/play_quantizer_ramp.py \
   --imitation-checkpoint-file assets/models/multi_task/imitation_rvq_model.pt \
   --start-vx 0.3 \
   --end-vx 2.5 \
-  --ramp-s 25
+  --ramp-s 25 \
+  --heading-stiffness 0.5 \
+  --heading-max-wz 1.0
 ```
+
+Use `--heading-hold False` to recover the old behavior where `wz` is always
+commanded as `0`.
 
 Headless video:
 

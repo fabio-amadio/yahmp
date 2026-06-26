@@ -329,7 +329,7 @@ def unitree_g1_yahmp_imitation_runner_cfg() -> YahmpImitationRunnerCfg:
         wandb_tags=_wandb_tags("yahmp", "imitation", "rvq"),
         save_interval=500,
         num_steps_per_env=24,
-        max_iterations=15_000,
+        max_iterations=6_000,
         obs_groups={"actor": ("actor",), "critic": ("critic",)},
     )
 

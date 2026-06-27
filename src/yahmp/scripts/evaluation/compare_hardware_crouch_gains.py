@@ -20,7 +20,6 @@ DEFAULT_STIFFPD_LOG = (
   "0001_accad_A7___crouch.npz"
 )
 DEFAULT_JOINTS = (
-  "right_ankle_roll_joint",
   "right_ankle_pitch_joint",
 )
 
@@ -146,6 +145,16 @@ def _joint_indices(joint_names: list[str], selected_joints: list[str]) -> list[i
   return [joint_names.index(name) for name in selected_joints]
 
 
+def _display_joint_name(joint: str) -> str:
+  labels = {
+    "right_ankle_pitch_joint": "r. ankle pitch",
+    "right_ankle_roll_joint": "r. ankle roll",
+    "waist_yaw_joint": "waist yaw",
+    "waist_roll_joint": "waist roll",
+  }
+  return labels.get(joint, joint.removesuffix("_joint"))
+
+
 def _oscillation_stats(
   *,
   time_s: np.ndarray,
@@ -210,13 +219,15 @@ def _plot_comparison(
   yahmp_indices = _joint_indices(yahmp_names, joints)
   stiffpd_indices = _joint_indices(stiffpd_names, joints)
 
-  columns = 2
+  columns = min(2, len(joints))
   rows = int(np.ceil(len(joints) / columns))
+  figure_size = (4.2, 1.75) if len(joints) == 1 else (7.2, 2.45 * rows)
   figure, axes = plt.subplots(
     rows,
     columns,
-    figsize=(7.2, 2.2 * rows),
+    figsize=figure_size,
     sharex=True,
+    sharey=True,
     squeeze=False,
   )
 
@@ -237,8 +248,16 @@ def _plot_comparison(
       linewidth=1.2,
       label="Stiff-PD",
     )
-    axis.set_title(joint.removesuffix("_joint"), fontsize=9)
-    axis.set_ylabel("Measured angle [rad]")
+    joint_label = _display_joint_name(joint)
+    if len(joints) > 1:
+      axis.set_title(joint_label, fontsize=9)
+    if col == 0:
+      if len(joints) == 1:
+        axis.set_ylabel(f"{joint_label} [rad]")
+      else:
+        axis.set_ylabel("Measured angle [rad]")
+    else:
+      axis.tick_params(axis="y", labelleft=False)
     axis.grid(alpha=0.25)
     if row == rows - 1:
       axis.set_xlabel("Motion time [s]")
@@ -246,17 +265,34 @@ def _plot_comparison(
   for axis in axes.flat[len(joints) :]:
     axis.set_visible(False)
 
-  handles, labels = axes.flat[0].get_legend_handles_labels()
-  figure.legend(
-    handles,
-    labels,
-    loc="upper center",
-    ncol=2,
-    frameon=False,
-  )
-  figure.tight_layout(rect=(0.0, 0.0, 1.0, 0.93))
+  if len(joints) == 1:
+    axes.flat[0].legend(
+      loc="upper right",
+      ncol=1,
+      frameon=False,
+      fontsize=9,
+      handlelength=1.8,
+    )
+    figure.subplots_adjust(left=0.22, right=0.995, bottom=0.24, top=0.97)
+  else:
+    handles, labels = axes.flat[0].get_legend_handles_labels()
+    figure.legend(
+      handles,
+      labels,
+      loc="upper center",
+      ncol=2,
+      frameon=False,
+    )
+    figure.subplots_adjust(
+      left=0.085,
+      right=0.995,
+      bottom=0.16,
+      top=0.84,
+      wspace=0.04,
+    )
   output_path.parent.mkdir(parents=True, exist_ok=True)
-  figure.savefig(output_path, dpi=220, bbox_inches="tight")
+  figure.savefig(output_path.with_suffix(".pdf"), bbox_inches="tight")
+  figure.savefig(output_path.with_suffix(".png"), dpi=220, bbox_inches="tight")
   plt.close(figure)
 
 
@@ -295,7 +331,8 @@ def run(args: argparse.Namespace) -> None:
   print(f"YAHMP log     : {yahmp['path']}")
   print(f"Stiff-PD log  : {stiffpd['path']}")
   print(f"Output CSV    : {csv_path}")
-  print(f"Output figure : {figure_path}")
+  print(f"Output figure : {figure_path.with_suffix('.pdf')}")
+  print(f"Output figure : {figure_path.with_suffix('.png')}")
   print()
   print("| Policy | Joint | osc. RMS [rad] | osc. P95 [rad] | torque RMS [N m] |")
   print("|---|---|---:|---:|---:|")

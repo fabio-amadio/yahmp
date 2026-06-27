@@ -146,8 +146,8 @@ def _style_axis(axis: Any) -> None:
   axis.spines["bottom"].set_color("#B0B0B0")
   axis.grid(axis="y", color="#E6E6E6", linewidth=0.7)
   axis.set_axisbelow(True)
-  axis.tick_params(axis="x", labelsize=7, length=0)
-  axis.tick_params(axis="y", labelsize=7, length=0)
+  axis.tick_params(axis="x", labelsize=5.5, length=0)
+  axis.tick_params(axis="y", labelsize=5.5, length=0)
 
 
 def _boxplot_whisker_bounds(
@@ -193,7 +193,7 @@ def _add_significance(
     label,
     ha="center",
     va="bottom",
-    fontsize=7,
+    fontsize=5.5,
     color="#222222",
   )
 
@@ -253,8 +253,8 @@ def _plot_metric(
   ):
     label = _sig_label(p_values.get((policy_key, metric), math.nan))
     if label and math.isfinite(whisker_high):
-      star_positions[policy_key] = whisker_high + 0.012 * y_span
-  y_top = max([y_max, *star_positions.values()]) + 0.028 * y_span
+      star_positions[policy_key] = whisker_high + 0.008 * y_span
+  y_top = max([y_max, *star_positions.values()]) + 0.04 * y_span
   axis.set_ylim(y_min - 0.005 * y_span, y_top)
   box = axis.boxplot(
     values_by_policy,
@@ -272,7 +272,7 @@ def _plot_metric(
     patch.set_edgecolor(color)
     patch.set_alpha(0.62)
 
-  axis.set_ylabel(f"{title} {unit}", fontsize=7)
+  axis.set_title(f"{title} {unit}", fontsize=5.8, pad=6.0)
   axis.set_xticks(positions, labels, rotation=35, ha="right")
   axis.set_xlim(0.4, len(POLICIES) + 0.6)
   _style_axis(axis)
@@ -282,7 +282,7 @@ def _plot_metric(
     _add_significance(
       axis=axis,
       x_position=float(x_position),
-      y_position=float(star_positions.get(policy_key, y_max + 0.012 * y_span)),
+      y_position=float(star_positions.get(policy_key, y_max + 0.008 * y_span)),
       p_value=p_values.get((policy_key, metric), math.nan),
     )
 

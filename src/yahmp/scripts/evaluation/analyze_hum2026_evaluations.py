@@ -50,6 +50,7 @@ DISPLAY_NAMES = {
   "YAHMP-QOnly-NoHistory": "Q only, no history",
   "YAHMP-NoResidual": "No residual",
   "YAHMP-StiffPD": "StiffPD",
+  "TWIST2": "TWIST2",
 }
 
 METRIC_LABELS = {

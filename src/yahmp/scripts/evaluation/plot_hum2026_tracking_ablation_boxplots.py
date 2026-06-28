@@ -30,6 +30,7 @@ POLICIES = (
   ("YAHMP-NoHistory", "No hist.", "ecv01j9q"),
   ("YAHMP-History20", "Hist-20", "s3dqxo63"),
   ("YAHMP-QOnly", "Pos-ref", "6j0rl3lu"),
+  ("TWIST2", "TWIST2", "retrained"),
 )
 
 METRICS = (
@@ -48,6 +49,7 @@ PALETTE = {
   "YAHMP-NoHistory": "#7570B3",
   "YAHMP-History20": "#E7298A",
   "YAHMP-QOnly": "#66A61E",
+  "TWIST2": "#A6761D",
 }
 
 

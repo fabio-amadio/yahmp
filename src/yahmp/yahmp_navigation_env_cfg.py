@@ -44,7 +44,7 @@ def _navigation_command_cfg() -> mdp.NavigationGoalCommandCfg:
         entity_name="robot",
         resampling_time_range=(20.0, 30.0),
         debug_vis=True,
-        distance_range=(8.0, 12.0),
+        distance_range=(6.0, 10.0),
         angle_range=(-math.pi, math.pi),
         reach_tol=0.35,
         pos_clip=20.0,

@@ -392,3 +392,6 @@ class YahmpImitationRunner:
                 cfg.setdefault("hidden_dims", (512, 512, 256, 128))
                 cfg.setdefault("activation", "elu")
                 cfg.setdefault("obs_normalization", True)
+                cfg.setdefault(
+                    "rvq_rotation_trick", train_cfg.get("rvq_rotation_trick", True)
+                )

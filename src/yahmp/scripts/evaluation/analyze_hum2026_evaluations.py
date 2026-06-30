@@ -45,12 +45,18 @@ ALL_METRICS = ("success", *CONTINUOUS_METRICS)
 DISPLAY_NAMES = {
   "YAHMP": "Baseline",
   "YAHMP-NoHistory": "No history",
-  "YAHMP-History20": "History 20",
-  "YAHMP-QOnly": "Q only",
-  "YAHMP-QOnly-NoHistory": "Q only, no history",
+  "YAHMP-History20": "History-20",
+  "YAHMP-QOnly": "Pos-ref-only",
+  "YAHMP-QOnly-NoHistory": "Pos-ref-only, no history",
   "YAHMP-NoResidual": "No residual",
-  "YAHMP-StiffPD": "StiffPD",
+  "YAHMP-StiffPD": "Stiffer fixed-scale",
+  "YAHMP-Student-ActionMatching": "Teacher-student action matching",
+  "YAHMP-Student-KLMatching": "Teacher-student",
   "TWIST2": "TWIST2",
+}
+
+PREFERRED_RUN_IDS = {
+  "YAHMP": "m9b6wla7",
 }
 
 METRIC_LABELS = {
@@ -185,6 +191,15 @@ def discover_policies(input_root: Path) -> dict[str, PolicyData]:
   by_key: dict[str, list[Path]] = defaultdict(list)
   for csv_path in csv_paths:
     by_key[csv_path.relative_to(input_root).parts[0]].append(csv_path)
+  for key, run_id in PREFERRED_RUN_IDS.items():
+    paths = by_key.get(key, [])
+    if len(paths) > 1:
+      selected = [path for path in paths if path.parent.name == run_id]
+      if len(selected) != 1:
+        raise ValueError(
+          f"Preferred run `{run_id}` for policy `{key}` not found uniquely: {paths}"
+        )
+      by_key[key] = selected
   duplicates = {key: paths for key, paths in by_key.items() if len(paths) > 1}
   if duplicates:
     formatted = "\n".join(

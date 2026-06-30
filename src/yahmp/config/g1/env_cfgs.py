@@ -12,8 +12,11 @@ from mjlab.asset_zoo.robots.unitree_g1.g1_constants import (
 from mjlab.entity import EntityArticulationInfoCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
+from mjlab.managers.event_manager import EventTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 
+from yahmp import mdp
 from yahmp.mdp import (
   FutureJointRefAnchorRpMotionCommandCfg,
   HandBaseMotionCommandCfg,
@@ -336,13 +339,47 @@ def _apply_unitree_g1_overrides(
       cfg.terminations["motion_ref_expired"] = motion_expiration_termination
     cfg.events.pop("push_robot", None)
     cfg.events.pop("action_delay", None)
-    # Uncomment to disable "push_end_effector" event.
-    # cfg.events.pop("push_end_effector", None)
+    cfg.events.pop("push_end_effector", None)
 
     motion_cmd.pose_range = {}
     motion_cmd.velocity_range = {}
     motion_cmd.sampling_mode = "start"
 
+  return cfg
+
+
+def _enable_hand_force_randomization(
+  cfg: ManagerBasedRlEnvCfg,
+) -> ManagerBasedRlEnvCfg:
+  cfg.events["push_end_effector"] = EventTermCfg(
+    func=mdp.apply_torque_limited_body_force,
+    mode="step",
+    params={
+      "asset_cfg": SceneEntityCfg("robot", body_names=()),
+      "duration_s": (0.5, 2.0),
+      "cooldown_s": (0.0, 0.5),
+      "joint_names": (
+        "waist_.*_joint",
+        ".*_shoulder_.*_joint",
+        ".*_elbow_joint",
+        ".*_wrist_.*_joint",
+      ),
+      "feasible_force_fraction_range": (0.05, 0.25),
+      "max_force_magnitude": 20.0,
+      "force_ramp_time_fraction": 0.15,
+      "dirichlet_alpha": 1.0,
+      "subtract_commanded_torque_margin": True,
+      "use_current_qvel_for_inverse_dynamics": True,
+      "body_point_offset": None,
+      "randomize_application_point": False,
+      "application_point_delta_range": None,
+      "randomize_body": True,
+      "eps": 1.0e-6,
+      "debug_force_vis_enabled": True,
+      "debug_force_vis_scale": 0.015,
+      "debug_force_vis_width": 0.01,
+    },
+  )
   return cfg
 
 
@@ -358,6 +395,14 @@ def unitree_g1_yahmp_env_cfg(
 ) -> ManagerBasedRlEnvCfg:
   """Create the Unitree G1 YAHMP direct-training configuration."""
   return _apply_unitree_g1_overrides(make_env_cfg(), play=play)
+
+
+def unitree_g1_yahmp_hand_force_rand_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Create the Unitree G1 YAHMP configuration with randomized hand forces."""
+  cfg = _enable_hand_force_randomization(make_env_cfg())
+  return _apply_unitree_g1_overrides(cfg, play=play)
 
 
 def unitree_g1_yahmp_history20_env_cfg(

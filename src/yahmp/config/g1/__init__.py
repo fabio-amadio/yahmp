@@ -5,6 +5,7 @@ from yahmp.rl import YahmpOnPolicyRunner, YahmpStudentOnPolicyRunner
 from .env_cfgs import (
   unitree_g1_yahmp_env_cfg,
   unitree_g1_yahmp_future_env_cfg,
+  unitree_g1_yahmp_hand_force_rand_env_cfg,
   unitree_g1_yahmp_history20_env_cfg,
   unitree_g1_yahmp_no_history_env_cfg,
   unitree_g1_yahmp_no_residual_env_cfg,
@@ -32,6 +33,14 @@ register_mjlab_task(
   task_id="Mjlab-YAHMP-Unitree-G1",
   env_cfg=unitree_g1_yahmp_env_cfg(),
   play_env_cfg=unitree_g1_yahmp_env_cfg(play=True),
+  rl_cfg=unitree_g1_yahmp_ppo_runner_cfg(),
+  runner_cls=YahmpOnPolicyRunner,
+)
+
+register_mjlab_task(
+  task_id="Mjlab-YAHMP-HandForceRand-Unitree-G1",
+  env_cfg=unitree_g1_yahmp_hand_force_rand_env_cfg(),
+  play_env_cfg=unitree_g1_yahmp_hand_force_rand_env_cfg(play=True),
   rl_cfg=unitree_g1_yahmp_ppo_runner_cfg(),
   runner_cls=YahmpOnPolicyRunner,
 )

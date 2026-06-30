@@ -26,10 +26,11 @@ DEFAULT_OUTPUT = (
 POLICIES = (
   ("YAHMP", "YAHMP", "m9b6wla7"),
   ("YAHMP-NoResidual", "No res.", "vgkib246"),
-  ("YAHMP-StiffPD", "Stiff-PD", "n82dzqva"),
+  ("YAHMP-StiffPD", "Stiff. fix.-sc.", "n82dzqva"),
   ("YAHMP-NoHistory", "No hist.", "ecv01j9q"),
   ("YAHMP-History20", "Hist-20", "s3dqxo63"),
   ("YAHMP-QOnly", "Pos-ref", "6j0rl3lu"),
+  ("YAHMP-Student-KLMatching", "Teach.-stud.", "3zlsiirm"),
   ("TWIST2", "TWIST2", "retrained"),
 )
 
@@ -49,6 +50,7 @@ PALETTE = {
   "YAHMP-NoHistory": "#7570B3",
   "YAHMP-History20": "#E7298A",
   "YAHMP-QOnly": "#66A61E",
+  "YAHMP-Student-KLMatching": "#1F78B4",
   "TWIST2": "#A6761D",
 }
 
@@ -127,6 +129,61 @@ def _load_p_values(path: Path) -> dict[tuple[str, str], float]:
   return p_values
 
 
+def _paired_p_value(reference: np.ndarray, variant: np.ndarray) -> float:
+  try:
+    from scipy.stats import wilcoxon
+  except ImportError:
+    return math.nan
+  finite = np.isfinite(reference) & np.isfinite(variant)
+  differences = variant[finite] - reference[finite]
+  differences = differences[np.abs(differences) > 1.0e-12]
+  if differences.size == 0:
+    return 1.0
+  try:
+    return float(
+      wilcoxon(differences, alternative="two-sided", zero_method="wilcox").pvalue
+    )
+  except ValueError:
+    return math.nan
+
+
+def _holm_adjust(p_values: dict[str, float]) -> dict[str, float]:
+  finite = sorted(
+    ((metric, p_value) for metric, p_value in p_values.items() if math.isfinite(p_value)),
+    key=lambda item: item[1],
+  )
+  adjusted: dict[str, float] = {
+    metric: math.nan for metric in p_values if not math.isfinite(p_values[metric])
+  }
+  running_max = 0.0
+  total = len(finite)
+  for rank, (metric, p_value) in enumerate(finite, start=1):
+    corrected = min(1.0, (total - rank + 1) * p_value)
+    running_max = max(running_max, corrected)
+    adjusted[metric] = running_max
+  return adjusted
+
+
+def _fill_missing_p_values(
+  input_root: Path,
+  p_values: dict[tuple[str, str], float],
+) -> dict[tuple[str, str], float]:
+  reference_key, _, reference_run = POLICIES[0]
+  reference_values = {
+    metric: _load_metric_values(_csv_path(input_root, reference_key, reference_run), metric)
+    for metric, _, _ in METRICS
+  }
+  for policy_key, _, run_id in POLICIES[1:]:
+    raw: dict[str, float] = {}
+    for metric, _, _ in METRICS:
+      variant_values = _load_metric_values(_csv_path(input_root, policy_key, run_id), metric)
+      raw[metric] = _paired_p_value(reference_values[metric], variant_values)
+    for metric, p_value in _holm_adjust(raw).items():
+      if not math.isfinite(p_values.get((policy_key, metric), math.nan)):
+        p_values[(policy_key, metric)] = p_value
+  return p_values
+
+
 def _sig_label(p_value: float) -> str:
   if not math.isfinite(p_value):
     return ""
@@ -148,8 +205,8 @@ def _style_axis(axis: Any) -> None:
   axis.spines["bottom"].set_color("#B0B0B0")
   axis.grid(axis="y", color="#E6E6E6", linewidth=0.7)
   axis.set_axisbelow(True)
-  axis.tick_params(axis="x", labelsize=5.5, length=0)
-  axis.tick_params(axis="y", labelsize=5.5, length=0)
+  axis.tick_params(axis="x", labelsize=6.2, length=0)
+  axis.tick_params(axis="y", labelsize=6.2, length=0)
 
 
 def _boxplot_whisker_bounds(
@@ -195,7 +252,7 @@ def _add_significance(
     label,
     ha="center",
     va="bottom",
-    fontsize=5.5,
+    fontsize=6.2,
     color="#222222",
   )
 
@@ -253,7 +310,13 @@ def _plot_metric(
   for policy_key, whisker_high in zip(
     (policy[0] for policy in POLICIES[1:]), whisker_highs[1:], strict=True
   ):
-    label = _sig_label(p_values.get((policy_key, metric), math.nan))
+    p_value = p_values.get((policy_key, metric), math.nan)
+    if not math.isfinite(p_value):
+      policy_index = next(
+        index for index, policy in enumerate(POLICIES) if policy[0] == policy_key
+      )
+      p_value = _paired_p_value(values_by_policy[0], values_by_policy[policy_index])
+    label = _sig_label(p_value)
     if label and math.isfinite(whisker_high):
       star_positions[policy_key] = whisker_high + 0.008 * y_span
   y_top = max([y_max, *star_positions.values()]) + 0.04 * y_span
@@ -274,18 +337,24 @@ def _plot_metric(
     patch.set_edgecolor(color)
     patch.set_alpha(0.62)
 
-  axis.set_title(f"{title} {unit}", fontsize=5.8, pad=6.0)
+  axis.set_title(f"{title} {unit}", fontsize=6.8, pad=6.0)
   axis.set_xticks(positions, labels, rotation=35, ha="right")
   axis.set_xlim(0.4, len(POLICIES) + 0.6)
   _style_axis(axis)
   for x_position, (policy_key, _, _) in zip(
     positions[1:], POLICIES[1:], strict=True
   ):
+    p_value = p_values.get((policy_key, metric), math.nan)
+    if not math.isfinite(p_value):
+      policy_index = next(
+        index for index, policy in enumerate(POLICIES) if policy[0] == policy_key
+      )
+      p_value = _paired_p_value(values_by_policy[0], values_by_policy[policy_index])
     _add_significance(
       axis=axis,
       x_position=float(x_position),
       y_position=float(star_positions.get(policy_key, y_max + 0.008 * y_span)),
-      p_value=p_values.get((policy_key, metric), math.nan),
+      p_value=p_value,
     )
 
 
@@ -305,6 +374,7 @@ def main() -> None:
   args = parse_args()
   input_root = args.input_root.expanduser().resolve()
   p_values = _load_p_values(args.analysis_json.expanduser().resolve())
+  p_values = _fill_missing_p_values(input_root, p_values)
 
   figure, axes = plt.subplots(2, 3, figsize=(7.25, 3.0), constrained_layout=True)
   figure.set_constrained_layout_pads(w_pad=0.015, h_pad=0.01, wspace=0.01, hspace=0.02)

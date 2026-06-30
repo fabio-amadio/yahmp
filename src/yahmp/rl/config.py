@@ -118,10 +118,10 @@ class YahmpImitationRunnerCfg(RslRlBaseRunnerCfg):
             hidden_dims=(512, 512, 256, 128),
             activation="elu",
             obs_normalization=True,
-            rvq_rotation_trick=False,  # True
         )
     )
     expert_checkpoint: str | None = None
     loss_weights: ImitationLossWeights = field(default_factory=ImitationLossWeights)
     trainer: ImitationTrainerCfg = field(default_factory=ImitationTrainerCfg)
     upload_model_mode: UploadModelMode = "rolling_latest"
+    rvq_rotation_trick: bool = True

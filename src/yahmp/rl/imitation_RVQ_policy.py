@@ -226,7 +226,9 @@ class YahmpImitationModel(MLPModel):
             hidden_dims=hidden_dims,
             activation=activation,
         )
-
+        print(
+            "[YahmpImitationModel] initialized with rotation trick:", rvq_rotation_trick
+        )
         rvq_cfg = RVQCfg(
             dim=self.latent_dim,
             num_quantizers=int(rvq_num_quantizers),
@@ -282,7 +284,7 @@ class YahmpImitationModel(MLPModel):
         zp_sg = zp.detach()
         y = z - zp_sg
         y_hat, vq_info = self.rvq(y)
-        z_hat = y_hat + zp_sg
+        z_hat = zp_sg + y_hat
         a_hat = self.action_decoder(s, z_hat)
 
         return {
@@ -344,7 +346,7 @@ class _OnnxYahmpImitationModel(nn.Module):
         zp_sg = zp.detach()
         y = z - zp_sg
         y_hat, vq_info = self.rvq(y)
-        z_hat = y_hat + zp_sg
+        z_hat = zp_sg + y_hat
         action = self.action_decoder(s, z_hat)
         return action
 

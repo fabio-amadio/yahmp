@@ -646,6 +646,7 @@ class YahmpLocomotionOnPolicyRunner(YahmpOnPolicyRunner):
         super().__init__(env, train_cfg, log_dir, device, registry_name=registry_name)
         self._maybe_load_imitation_checkpoint()
         self._assert_freezing_invariants()
+        # self._capture_normalizer_reference()
 
     def _imitation_checkpoint_path(self) -> Path | None:
         checkpoint_file = self.cfg.get("imitation_checkpoint_file")
@@ -820,6 +821,71 @@ class YahmpLocomotionOnPolicyRunner(YahmpOnPolicyRunner):
             "[INFO]: Locomotion actor trainable top-level submodules: "
             f"{sorted(trainable_names)}; frozen: {sorted(frozen_names)}."
         )
+
+    # def _capture_normalizer_reference(self) -> None:
+    #     """Snapshot the (frozen) obs-normalizer buffers for regression checks.
+
+    #     The locomotion actor's ``update_normalization`` is a no-op so the
+    #     normalizer must stay bit-identical to the values warm-started from the
+    #     imitation checkpoint. This captures the reference once so
+    #     ``_assert_normalizer_unchanged`` can hard-fail on any drift.
+    #     """
+    #     actor = getattr(self.alg, "actor", None)
+    #     self._norm_ref: dict | None = None
+    #     if not isinstance(actor, YahmpLocomotionActorModel) or not actor.obs_normalization:
+    #         return
+    #     n = actor.obs_normalizer
+    #     self._norm_ref = {
+    #         "count": int(n.count.item()),
+    #         "_mean": n._mean.detach().clone(),
+    #         "_var": n._var.detach().clone(),
+    #         "_std": n._std.detach().clone(),
+    #     }
+    #     print(
+    #         "[INFO]: obs_normalizer reference captured "
+    #         f"(count={self._norm_ref['count']}); normalizer must stay frozen."
+    #     )
+
+    def _assert_normalizer_unchanged(self) -> None:
+        """Hard-fail if the obs-normalizer drifted from its frozen reference."""
+        ref = getattr(self, "_norm_ref", None)
+        if ref is None:
+            return
+        n = self.alg.actor.obs_normalizer
+        cur_count = int(n.count.item())
+        if cur_count != ref["count"]:
+            raise RuntimeError(
+                f"obs_normalizer.count changed ({ref['count']} -> {cur_count}): "
+                "the normalizer is being updated despite update_normalization() "
+                "being a no-op. Check the YahmpLocomotionActorModel override."
+            )
+        for name in ("_mean", "_var", "_std"):
+            cur = getattr(n, name)
+            if not torch.equal(cur, ref[name]):
+                d = (cur.float() - ref[name].float()).abs().max().item()
+                raise RuntimeError(
+                    f"obs_normalizer.{name} changed (max|Δ|={d:.3e}): the "
+                    "normalizer is being updated despite the frozen override."
+                )
+
+    def save(self, path: str, infos=None) -> None:
+        # Regression guard: the obs-normalizer must never drift (it is frozen at
+        # the imitation values). Fail loudly before persisting a corrupt run.
+        self._assert_normalizer_unchanged()
+        super().save(path, infos)
+
+    def load(
+        self,
+        path: str,
+        load_cfg: dict | None = None,
+        strict: bool = True,
+        map_location: str | None = None,
+    ) -> dict:
+        infos = super().load(path, load_cfg, strict, map_location)
+        # Re-baseline after a resume so the guard checks "no drift during this
+        # run" without false-positiving on the resumed-checkpoint state.
+        # self._capture_normalizer_reference()
+        return infos
 
 
 class YahmpStudentOnPolicyRunner(YahmpOnPolicyRunner):

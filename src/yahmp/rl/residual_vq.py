@@ -135,6 +135,15 @@ class ResidualVQ(nn.Module):
                 break
 
             # VectorQuantize usually returns: quantized, indices, loss
+            # if qi in [0, 1, 2, 3, 5, 6, 7]:
+            #     B = residual.shape[0]
+            #     idx = torch.randint(
+            #         0, layer.codebook_size, (B,), device=residual.device
+            #     )
+            #     quantized = layer.get_output_from_indices(idx)
+            #     indices = idx
+            #     loss = torch.zeros((), device=residual.device, dtype=residual.dtype)
+            # else:
             quantized, indices, loss = layer(residual)
 
             # residual quantization step (detach quantized so only current layer gets signal through residual path)

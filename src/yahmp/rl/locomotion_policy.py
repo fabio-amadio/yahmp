@@ -363,13 +363,22 @@ class YahmpLocomotionActorModel(MLPModel):
         obs_flat = MLPModel.get_latent(self, obs, masks, hidden_state)
         s_rich, g_task = self._build_s_rich(obs_flat)
         logits = self.high_level(s_rich, g_task)
-        logits_view = logits.view(-1, self.num_active_codebooks, self.codebook_size) #(B, 8, 1024)
-        
-        #idx = torch.randint(0, self.codebook_size, size=(logits_view.shape[0],logits_view.shape[1]), device=logits_view.device).to(torch.int64)
-        #idx2 = logits_view.argmax(dim=-1).to(torch.int64)
-        #indices = torch.concat((idx2[:, :5], torch.zeros_like(idx[:, 5:8]), idx2[:, 0:0]), dim=-1)
-        #print(f"[YAHMP LOCOMOTION] {idx2[:, :5].shape}, {idx[:, 5:8].shape}, {idx2[:, 0:0].shape}")
-        #indices = torch.concat((idx2[:, :1], idx[:, 3:7], idx2[:, 7:]), dim=-1)
+        logits_view = logits.view(
+            -1, self.num_active_codebooks, self.codebook_size
+        )  # (B, 8, 1024)
+
+        # idx = torch.randint(
+        #     0,
+        #     self.codebook_size,
+        #     size=(logits_view.shape[0], logits_view.shape[1]),
+        #     device=logits_view.device,
+        # ).to(torch.int64)
+        # idx2 = logits_view.argmax(dim=-1).to(torch.int64)
+        # indices = torch.concat(
+        #     (idx2[:, :6], torch.zeros_like(idx[:, 6:8]), idx2[:, 0:0]), dim=-1
+        # )
+        # print(f"[YAHMP LOCOMOTION] {idx2[:, :5].shape}, {idx[:, 5:8].shape}, {idx2[:, 0:0].shape}")
+        # indices = torch.concat((idx2[:, :5], idx[:, 5:8], idx2[:, 0:0]), dim=-1)
         indices = logits_view.argmax(dim=-1).to(torch.int64)
         zp = self.prior(s_rich)
         y_hat = self.lookup_codebook(indices)
@@ -385,6 +394,10 @@ class YahmpLocomotionActorModel(MLPModel):
         # Keep RVQ in train mode for STE; codebook frozen via _freeze_rvq.
         self.rvq.train(mode)
         return self
+
+    # def update_normalization(self, obs: TensorDict) -> None:
+    #     """No updating. Obs normalizer stays fixed as uploaded from the Imitation Model."""
+    #     return
 
     def load_imitation_weights(
         self,
@@ -437,14 +450,9 @@ class YahmpLocomotionActorModel(MLPModel):
         self._freeze_frozen_submodules()
 
         if copy_normalizer_proprio_history and self.obs_normalization:
-            if expert_state_dict is not None:
-                self._copy_normalizer_proprio_history(
-                    expert_state_dict, source_name="expert"
-                )
-            else:
-                self._copy_normalizer_proprio_history(
-                    imitation_state_dict, source_name="imitation"
-                )
+            self._copy_normalizer_proprio_history(
+                imitation_state_dict, source_name="imitation"
+            )
             self._pin_gtask_normalizer_identity()
 
     def _freeze_frozen_submodules(self) -> None:

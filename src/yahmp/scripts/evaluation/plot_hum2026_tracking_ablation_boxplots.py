@@ -24,9 +24,9 @@ DEFAULT_OUTPUT = (
 )
 
 POLICIES = (
-  ("YAHMP", "YAHMP", "m9b6wla7"),
+  ("YAHMP", "Nominal", "m9b6wla7"),
   ("YAHMP-NoResidual", "No res.", "vgkib246"),
-  ("YAHMP-StiffPD", "Stiff. fix.-sc.", "n82dzqva"),
+  ("YAHMP-StiffPD", "Stiff fix.-sc.", "n82dzqva"),
   ("YAHMP-NoHistory", "No hist.", "ecv01j9q"),
   ("YAHMP-History20", "Hist-20", "s3dqxo63"),
   ("YAHMP-QOnly", "Pos-ref", "6j0rl3lu"),
@@ -187,13 +187,7 @@ def _fill_missing_p_values(
 def _sig_label(p_value: float) -> str:
   if not math.isfinite(p_value):
     return ""
-  if p_value < 1.0e-4:
-    return "****"
   if p_value < 1.0e-3:
-    return "***"
-  if p_value < 1.0e-2:
-    return "**"
-  if p_value < 5.0e-2:
     return "*"
   return ""
 

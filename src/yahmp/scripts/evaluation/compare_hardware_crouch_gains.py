@@ -240,13 +240,13 @@ def _plot_comparison(
       yahmp["time_s"],
       yahmp["measured"][:, yahmp_index],
       linewidth=1.2,
-      label="YAHMP",
+      label="Mechanics-based",
     )
     axis.plot(
       stiffpd["time_s"],
       stiffpd["measured"][:, stiffpd_index],
       linewidth=1.2,
-      label="Stiff-PD",
+      label="Stiffer fixed-scale",
     )
     joint_label = _display_joint_name(joint)
     if len(joints) > 1:

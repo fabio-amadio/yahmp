@@ -23,10 +23,13 @@ from typing import TYPE_CHECKING, TypedDict, cast
 import torch
 from mjlab.entity import Entity
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.viewer.debug_visualizer import DebugVisualizer
+
+_DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
 
 __all__ = [
     "NavigationGoalCommand",
@@ -38,6 +41,7 @@ __all__ = [
     "nav_heading_exp",
     "nav_success_bonus",
     "navigate_command_levels",
+    "back_lean_flat_orientation_l2",
 ]
 
 
@@ -300,6 +304,20 @@ def nav_success_bonus(
     """Sparse +1 on the step the base reaches the goal (pre-resample)."""
     command = _nav_command(env, command_name)
     return command.just_reached.float()
+
+
+def back_lean_flat_orientation_l2(
+    env: ManagerBasedRlEnv,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+    """Penalize back_lean base orientation."""
+    asset: Entity = env.scene[asset_cfg.name]
+    back_lean = asset.data.projected_gravity_b[:, 0]
+    back_lean_mask = back_lean < 0.0
+    rew = torch.where(
+        back_lean_mask, torch.square(back_lean), torch.zeros_like(back_lean)
+    )
+    return rew
 
 
 class NavLevelStage(TypedDict, total=False):

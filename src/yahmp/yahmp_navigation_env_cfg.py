@@ -113,33 +113,33 @@ def _rewards() -> dict[str, RewardTermCfg]:
         #         "command_name": None,
         #     },
         # ),
-        "flat_orientation_l2": RewardTermCfg(
-            func=vel_mdp.flat_orientation_l2,
-            weight=-3.0,
+        "back_lean_orientation_l2": RewardTermCfg(
+            func=mdp.back_lean_flat_orientation_l2,
+            weight=-5.0,
         ),
-        #     "upper_body_posture": RewardTermCfg(
-        #         func=vel_mdp.posture,
-        #         weight=0.1,
-        #         params={
-        #             "asset_cfg": SceneEntityCfg(
-        #                 "robot",
-        #                 joint_names=(
-        #                     ".*_shoulder_pitch_joint",
-        #                     ".*_shoulder_roll_joint",
-        #                     ".*_shoulder_yaw_joint",
-        #                     ".*_elbow_joint",
-        #                     ".*_wrist_.*",
-        #                 ),
-        #             ),
-        #             "std": {
-        #                 r".*shoulder_pitch.*": 0.15,
-        #                 r".*shoulder_roll.*": 0.15,
-        #                 r".*shoulder_yaw.*": 0.1,
-        #                 r".*elbow.*": 0.15,
-        #                 r".*wrist.*": 0.3,
-        #             },
-        #         },
-        #     ),
+        "upper_body_posture": RewardTermCfg(
+            func=vel_mdp.posture,
+            weight=0.2,  ##prossimo train con 0.1
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=(
+                        ".*_shoulder_pitch_joint",
+                        ".*_shoulder_roll_joint",
+                        ".*_shoulder_yaw_joint",
+                        ".*_elbow_joint",
+                        ".*_wrist_.*",
+                    ),
+                ),
+                "std": {
+                    r".*shoulder_pitch.*": 0.15,
+                    r".*shoulder_roll.*": 0.15,
+                    r".*shoulder_yaw.*": 0.1,
+                    r".*elbow.*": 0.15,
+                    r".*wrist.*": 0.3,
+                },
+            },
+        ),
     }
 
 
@@ -166,8 +166,8 @@ def _curriculum() -> dict[str, CurriculumTermCfg]:
                         "angle_range": (-math.pi, math.pi),
                     },
                     {
-                        "step": 9500 * 24,
-                        "distance_range": (6.0, 10.0),
+                        "step": 5000 * 24,
+                        "distance_range": (10.0, 12.0),
                         "angle_range": (-math.pi, math.pi),
                     },
                 ],

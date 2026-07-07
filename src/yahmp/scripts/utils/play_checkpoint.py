@@ -35,6 +35,10 @@ class Config:
   imitation_checkpoint_file: str | None = None
   imitation_wandb_run_path: str | None = None
   imitation_wandb_checkpoint_name: str | None = None
+  # Must match the value the checkpoint was trained with: the high-level /
+  # categorical are sized by this, so a 3-codebook checkpoint won't load into
+  # an 8-codebook model. None leaves the registered-cfg default (all 8).
+  rvq_num_active_quantizers: int | None = None
 
 
 def main() -> None:
@@ -89,6 +93,7 @@ def main() -> None:
     "imitation_checkpoint_file",
     "imitation_wandb_run_path",
     "imitation_wandb_checkpoint_name",
+    "rvq_num_active_quantizers",
   ):
     value = getattr(cfg, field_name)
     if value is None:

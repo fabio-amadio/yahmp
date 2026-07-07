@@ -39,24 +39,25 @@ from mjlab.utils.torch import configure_torch_backends
 from mjlab.viewer import NativeMujocoViewer, ViserPlayViewer
 
 SCHEDULE: list[tuple[float, float, float, float, str]] = [
-    (10.0, 0.0, 0.0, 0.0, "standing"),
-    (6.0, 0.8, 0.0, 0.0, "walk medio (cmd noto nel training)"),
-    (10.0, 1.0, 0.0, 0.0, "walk (vx=1.0)"),
-    (8.0, 1.3, 0.0, 0.0, "walk (vx=1.5)"),
-    (10.0, 2.0, 0.0, 0.0, "run (vx=2.0)"),
-    (8.0, 2.0, 0.0, 0.5, "run turning (vx=2.5)"),
-    (4.0, 1.5, 0.0, 0.5, "decel (vx=1.3)"),
-    (2.0, 1.8, 0.0, 1.2, "decel (vx=1.3)"),
-    (3.0, 0.0, -0.7, 0.0, "decel (vx=1.3)"),
-    (2.0, 3.0, -1.0, 0.0, "decel (vx=1.3)"),
+    (5.0, 0.0, 0.0, 0.0, "standing"),
+    #
+    # (6.0, 0.4, 0.0, 0.0, "walk medio"),
+    (6.0, 1.0, 0.0, 0.0, "walk (vx=1.0)"),
+    (6.0, 1.5, 0.0, 0.0, "walk (vx=1.2)"),
+    (6.0, 2.0, 0.0, 0.0, "run (vx=2.0)"),
+    (6.0, 2.5, 0.0, 0.5, "run turning (vx=2.5)"),
+    (5.0, 2.5, 0.0, -1.2, "decel (vx=1.3)"),
     (6.0, 3.0, 0.0, 0.0, "decel (vx=1.3)"),
-    (4.0, -0.7, 0.0, 0.0, "decel (vx=-1.0)"),
-    (4.0, -1.5, 0.0, 0.0, "decel (vx=-1.0)"),
-    (6.0, 0.0, -0.7, 0.0, "lateral (v7=-1.0)"),
-    # (6.0, 0.0, -1.5, 0.0, "lateral (v7=-1.0)"),
-    (5.0, 0.0, 0.0, 1.0, "turn sul posto (wz=1.0)"),
-    (6.0, 1.0, 0.0, 0.5, "walk + turn"),
-    (4.0, -0.5, 0.0, 0.0, "walk indietro"),
+    (8.0, -1.0, 0.0, 0.0, "walk backward (vx=-1.5)"),
+    (1.5, 0.0, 0.0, 0.0, "walk backward (vx=-1.5)"),
+    (6.0, 0.0, 0.0, 1.0, "decel (vx=0.0)"),
+    (6.0, 0.0, 0.0, -1.2, "decel (vx=-1.0)"),
+    (6.0, 0.0, 1.0, 0.0, "lateral (v7=-0.7)"),
+    # (6.0, 0.0, -1.0, 0.0, "lateral (v7=0.7)"),
+    (10.0, 2.5, 0.0, 0.0, "running"),
+    (10.0, 3.0, 0.0, 0.0, "running"),
+    (6.0, 3.5, 0.0, 0.0, "running"),
+    # (6.0, 2.0, 0.0, 0.0, "running"),
 ]
 
 
@@ -75,6 +76,24 @@ class Config:
     """Disable terminations for a clean demo (the schedule keeps running)."""
     motion_file: str | None = None
     """Unused here, kept for parity with other tasks that need a motion."""
+
+    video: bool = False
+    """Record an mp4 alongside the on-screen viewer."""
+    video_length: int = 1500
+    """Frames (= env steps) to record. ~30 s at 50 Hz control."""
+    video_start_step: int = 0
+    """Steps to wait before recording begins, to skip the spawn transient."""
+    video_height: int | None = 1080
+    video_width: int | None = 1920
+    # Camera framing for the recorded mp4 (also sets the on-screen start pose).
+    cam_elevation: float | None = None
+    """Negative = above looking down. Try -25 for a three-quarter gait view."""
+    cam_distance: float | None = None
+    """Metres from the tracked base. Try 3-3.5 to frame the robot."""
+    cam_azimuth: float | None = None
+    """Viewing angle (degrees) around the robot."""
+    show_twist_arrow: bool = True
+    """Draw the twist command's velocity arrow at the base. Off for clean demos."""
 
 
 def _phase_at(t: float, total: float) -> tuple[float, float, float, str]:
@@ -167,7 +186,38 @@ def main() -> None:
 
     env_cfg.scene.num_envs = cfg.num_envs
 
-    env = ManagerBasedRlEnv(cfg=env_cfg, device=device, render_mode=None)
+    # Camera framing: applies to both the on-screen viewer and the recorded mp4.
+    if cfg.cam_elevation is not None:
+        env_cfg.viewer.elevation = cfg.cam_elevation
+    if cfg.cam_distance is not None:
+        env_cfg.viewer.distance = cfg.cam_distance
+    if cfg.cam_azimuth is not None:
+        env_cfg.viewer.azimuth = cfg.cam_azimuth
+    if cfg.video_height is not None:
+        env_cfg.viewer.height = cfg.video_height
+    if cfg.video_width is not None:
+        env_cfg.viewer.width = cfg.video_width
+
+    render_mode = "rgb_array" if cfg.video else None
+    env = ManagerBasedRlEnv(cfg=env_cfg, device=device, render_mode=render_mode)
+
+    if cfg.video:
+        from mjlab.utils.wrappers import VideoRecorder
+
+        video_folder = checkpoint_path.parent / "videos" / "scripted"
+        env = VideoRecorder(
+            env,
+            video_folder=video_folder,
+            step_trigger=lambda s: s == cfg.video_start_step,
+            video_length=cfg.video_length,
+            disable_logger=True,
+        )
+        print(
+            f"[INFO] Recording mp4 -> {video_folder} "
+            f"(starts at step {cfg.video_start_step}, {cfg.video_length} frames). "
+            "The offscreen camera follows env_cfg.viewer (cam-* flags), not the mouse."
+        )
+
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
     runner_cls = load_runner_cls(chosen_task) or MjlabOnPolicyRunner
@@ -192,6 +242,8 @@ def main() -> None:
             twist_term.cfg.rel_heading_envs = 0.0
         if hasattr(twist_term.cfg, "init_velocity_prob"):
             twist_term.cfg.init_velocity_prob = 0.0
+        # Hide the base-frame velocity arrow unless explicitly requested.
+        twist_term.cfg.debug_vis = cfg.show_twist_arrow
     if hasattr(twist_term, "is_standing_env"):
         twist_term.is_standing_env[:] = False
     if hasattr(twist_term, "is_heading_env"):

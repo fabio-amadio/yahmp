@@ -109,7 +109,7 @@ class NavigationGoalCommand(CommandTerm):
         self.target_pos_w[env_ids, 1] = root_xy[:, 1] + dist * torch.sin(direction)
 
         # Reset the potential baseline so the resample step yields zero progress.
-        new_dist = torch.norm(
+        new_dist = torch.linalg.norm(
             self.robot.data.root_link_pos_w[env_ids, :2] - self.target_pos_w[env_ids],
             dim=-1,
         )

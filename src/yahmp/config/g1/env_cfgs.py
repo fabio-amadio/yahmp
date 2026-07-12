@@ -1,7 +1,11 @@
 """Unitree G1 YAHMP environment configurations."""
 
 import math
+from xml.parsers.expat import model
+import mujoco as mj
+
 from pathlib import Path
+from mjlab.entity import EntityCfg
 
 # from mjlab.actuator import DelayedActuatorCfg
 from mjlab.asset_zoo.robots import G1_ACTION_SCALE, get_g1_robot_cfg
@@ -396,3 +400,42 @@ def unitree_g1_yahmp_navigation_env_cfg(
     from yahmp.yahmp_navigation_env_cfg import make_navigation_env_cfg
 
     return _apply_unitree_g1_locomotion_overrides(make_navigation_env_cfg(), play=play)
+
+
+def unitree_g1_yahmp_push_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+    """Create the Unitree G1 YAHMP push-perturbation configuration.
+
+    Shares the locomotion robot/sensor/DR overrides (FULL_COLLISION + ``self_collision``
+    sensor); the command, rewards and curriculum differ, defined in
+    ``make_push_env_cfg``.
+    """
+    from yahmp.yahmp_push_env_cfg import make_push_env_cfg
+
+    cfg = _apply_unitree_g1_locomotion_overrides(make_push_env_cfg(), play=play)
+    cfg.scene.entities["crate"] = _crate_entity_cfg()
+    # cfg.scene.sensors = cfg.scene.sensors + (
+    #     _hands_crate_sensor(),
+    #     _torso_crate_sensor(),
+    # )
+    return cfg
+
+
+def _crate_entity_cfg() -> EntityCfg:
+    return EntityCfg(
+        spec_fn=_crate_spec,
+        init_state=EntityCfg.InitialStateCfg(pos=(0.6, 0.0, 0.35)),
+    )
+
+
+def _crate_spec() -> mj.MjSpec:
+    static_model = """
+        <mujoco>
+        <worldbody>
+            <body name="crate" pos="0 0 0.5">
+                <freejoint/>
+                <geom name="crate_geom" type="box" size="0.2 0.2 0.35" mass="5" friction="0.8 0.02 0.001" rgba="0.6 0.4 0.2 1"/>
+            </body>
+        </worldbody>
+        </mujoco>
+        """
+    return mj.MjSpec.from_string(static_model)

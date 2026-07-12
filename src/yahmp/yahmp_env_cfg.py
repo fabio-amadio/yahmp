@@ -36,7 +36,7 @@ def _motion_command_kwargs() -> dict[str, object]:
     return {
         "entity_name": "robot",
         "resampling_time_range": (1.0e9, 1.0e9),
-        "debug_vis": True,
+        "debug_vis": False,
         "pose_range": {
             "x": (-0.05, 0.05),
             "y": (-0.05, 0.05),
@@ -314,8 +314,8 @@ def _rewards() -> dict[str, RewardTermCfg]:
                 ),
             },
         ),
-        "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-1e-1),
-        "action_acc_l2": RewardTermCfg(func=mdp.action_acc_l2, weight=-5e-2),
+        "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.02),
+        "action_acc_l2": RewardTermCfg(func=mdp.action_acc_l2, weight=-0.01),
         "joint_limit": RewardTermCfg(
             func=mdp.joint_pos_limits,
             weight=-10.0,
@@ -323,7 +323,7 @@ def _rewards() -> dict[str, RewardTermCfg]:
         ),
         "self_collisions": RewardTermCfg(
             func=tracking_mdp.self_collision_cost,
-            weight=-10.0,
+            weight=-1.0,
             params={"sensor_name": "self_collision"},
         ),
     }
@@ -342,21 +342,21 @@ def _terminations() -> dict[str, TerminationTermCfg]:
         ),
         "anchor_pos": TerminationTermCfg(
             func=tracking_mdp.bad_anchor_pos_z_only,
-            params={"command_name": "motion", "threshold": 0.25},
+            params={"command_name": "motion", "threshold": 0.4},
         ),
         "anchor_ori": TerminationTermCfg(
             func=tracking_mdp.bad_anchor_ori,
             params={
                 "asset_cfg": SceneEntityCfg("robot"),
                 "command_name": "motion",
-                "threshold": 0.8,
+                "threshold": 1.0,
             },
         ),
         "ee_body_pos": TerminationTermCfg(
             func=tracking_mdp.bad_motion_body_pos_z_only,
             params={
                 "command_name": "motion",
-                "threshold": 0.25,
+                "threshold": 0.5,
                 "body_names": (),
             },
         ),

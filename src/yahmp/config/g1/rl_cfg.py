@@ -391,6 +391,22 @@ def unitree_g1_yahmp_locomotion_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg
     )
 
 
+# def unitree_g1_yahmp_push_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg:
+#     """Runner for the continuous point-to-point push task.
+
+#     Identical hierarchical setup to the locomotion runner (frozen imitation
+#     backbone + categorical high-level + critic); only the experiment name and
+#     tags differ. The actor obs/goal dims (the push command is 3-D: heading-frame
+#     goal x_b, y_b, dist) are derived automatically by the runner from the env.
+#     """
+#     cfg = unitree_g1_yahmp_locomotion_runner_cfg()
+#     cfg.experiment_name = "g1_yahmp_push"
+#     cfg.wandb_tags = _wandb_tags(
+#         "yahmp", "push", "point_to_point", "frozen_imitation", "high_level"
+#     )
+#     return cfg
+
+
 def unitree_g1_yahmp_locomanip_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg:
     """Runner for the point-goal hand-reach (loco-manipulation) task.
 
@@ -436,6 +452,23 @@ def unitree_g1_yahmp_navigation_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg
     cfg.experiment_name = "g1_yahmp_navigation"
     cfg.wandb_tags = _wandb_tags(
         "yahmp", "navigation", "point_to_point", "frozen_imitation", "high_level"
+    )
+    return cfg
+
+
+def unitree_g1_yahmp_push_runner_cfg() -> YahmpLocomotionOnPolicyRunnerCfg:
+    """Runner for the crate-pushing task.
+
+    Identical hierarchical setup to the locomotion runner (frozen imitation
+    backbone + categorical high-level + critic); only the experiment name and
+    tags differ. The actor obs/command dims (the push command is 5-D:
+    heading-frame crate + goal + distance) are derived automatically by the
+    runner from the env.
+    """
+    cfg = unitree_g1_yahmp_locomotion_runner_cfg()
+    cfg.experiment_name = "g1_yahmp_push"
+    cfg.wandb_tags = _wandb_tags(
+        "yahmp", "push", "loco_manip", "frozen_imitation", "high_level"
     )
     return cfg
 

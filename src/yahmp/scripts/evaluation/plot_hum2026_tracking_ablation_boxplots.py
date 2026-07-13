@@ -20,7 +20,7 @@ DEFAULT_INPUT_ROOT = REPO_ROOT / "assets/logs/hum2026_cross_eval"
 DEFAULT_ANALYSIS_JSON = DEFAULT_INPUT_ROOT / "analysis/analysis.json"
 DEFAULT_OUTPUT = (
   REPO_ROOT
-  / "paper/Humanoids2026_YAHMP/Figures/hum2026-tracking-ablation-boxplots.pdf"
+  / "paper/What_Matters_in_Humanoid_Motion_Tracking_/Figures/hum2026-tracking-ablation-boxplots.pdf"
 )
 
 POLICIES = (
@@ -31,6 +31,7 @@ POLICIES = (
   ("YAHMP-History20", "Hist-20", "s3dqxo63"),
   ("YAHMP-QOnly", "Pos-ref", "6j0rl3lu"),
   ("YAHMP-Student-KLMatching", "Teach.-stud.", "3zlsiirm"),
+  ("YAHMP-HandForceRand", "Hand rand.", "tracking-eval"),
   ("TWIST2", "TWIST2", "retrained"),
 )
 
@@ -51,6 +52,7 @@ PALETTE = {
   "YAHMP-History20": "#E7298A",
   "YAHMP-QOnly": "#66A61E",
   "YAHMP-Student-KLMatching": "#1F78B4",
+  "YAHMP-HandForceRand": "#E6AB02",
   "TWIST2": "#A6761D",
 }
 
@@ -74,6 +76,11 @@ def parse_args() -> argparse.Namespace:
     type=Path,
     default=DEFAULT_OUTPUT,
     help="Output figure path. PNG/PDF siblings are both written.",
+  )
+  parser.add_argument(
+    "--no-stats",
+    action="store_true",
+    help="Do not compute or draw paired-test significance annotations.",
   )
   return parser.parse_args()
 
@@ -256,6 +263,7 @@ def _plot_metric(
   axis: Any,
   input_root: Path,
   p_values: dict[tuple[str, str], float],
+  draw_stats: bool,
   metric: str,
   title: str,
   unit: str,
@@ -301,18 +309,19 @@ def _plot_metric(
   y_min = max(0.0, y_min)
   y_span = max(y_max - y_min, 1.0e-6)
   star_positions: dict[str, float] = {}
-  for policy_key, whisker_high in zip(
-    (policy[0] for policy in POLICIES[1:]), whisker_highs[1:], strict=True
-  ):
-    p_value = p_values.get((policy_key, metric), math.nan)
-    if not math.isfinite(p_value):
-      policy_index = next(
-        index for index, policy in enumerate(POLICIES) if policy[0] == policy_key
-      )
-      p_value = _paired_p_value(values_by_policy[0], values_by_policy[policy_index])
-    label = _sig_label(p_value)
-    if label and math.isfinite(whisker_high):
-      star_positions[policy_key] = whisker_high + 0.008 * y_span
+  if draw_stats:
+    for policy_key, whisker_high in zip(
+      (policy[0] for policy in POLICIES[1:]), whisker_highs[1:], strict=True
+    ):
+      p_value = p_values.get((policy_key, metric), math.nan)
+      if not math.isfinite(p_value):
+        policy_index = next(
+          index for index, policy in enumerate(POLICIES) if policy[0] == policy_key
+        )
+        p_value = _paired_p_value(values_by_policy[0], values_by_policy[policy_index])
+      label = _sig_label(p_value)
+      if label and math.isfinite(whisker_high):
+        star_positions[policy_key] = whisker_high + 0.008 * y_span
   y_top = max([y_max, *star_positions.values()]) + 0.04 * y_span
   axis.set_ylim(y_min - 0.005 * y_span, y_top)
   box = axis.boxplot(
@@ -335,21 +344,22 @@ def _plot_metric(
   axis.set_xticks(positions, labels, rotation=35, ha="right")
   axis.set_xlim(0.4, len(POLICIES) + 0.6)
   _style_axis(axis)
-  for x_position, (policy_key, _, _) in zip(
-    positions[1:], POLICIES[1:], strict=True
-  ):
-    p_value = p_values.get((policy_key, metric), math.nan)
-    if not math.isfinite(p_value):
-      policy_index = next(
-        index for index, policy in enumerate(POLICIES) if policy[0] == policy_key
+  if draw_stats:
+    for x_position, (policy_key, _, _) in zip(
+      positions[1:], POLICIES[1:], strict=True
+    ):
+      p_value = p_values.get((policy_key, metric), math.nan)
+      if not math.isfinite(p_value):
+        policy_index = next(
+          index for index, policy in enumerate(POLICIES) if policy[0] == policy_key
+        )
+        p_value = _paired_p_value(values_by_policy[0], values_by_policy[policy_index])
+      _add_significance(
+        axis=axis,
+        x_position=float(x_position),
+        y_position=float(star_positions.get(policy_key, y_max + 0.008 * y_span)),
+        p_value=p_value,
       )
-      p_value = _paired_p_value(values_by_policy[0], values_by_policy[policy_index])
-    _add_significance(
-      axis=axis,
-      x_position=float(x_position),
-      y_position=float(star_positions.get(policy_key, y_max + 0.008 * y_span)),
-      p_value=p_value,
-    )
 
 
 def save_figure(fig: Any, output: Path) -> tuple[Path, Path]:
@@ -367,8 +377,10 @@ def main() -> None:
 
   args = parse_args()
   input_root = args.input_root.expanduser().resolve()
-  p_values = _load_p_values(args.analysis_json.expanduser().resolve())
-  p_values = _fill_missing_p_values(input_root, p_values)
+  p_values = {}
+  if not args.no_stats:
+    p_values = _load_p_values(args.analysis_json.expanduser().resolve())
+    p_values = _fill_missing_p_values(input_root, p_values)
 
   figure, axes = plt.subplots(2, 3, figsize=(7.25, 3.0), constrained_layout=True)
   figure.set_constrained_layout_pads(w_pad=0.015, h_pad=0.01, wspace=0.01, hspace=0.02)
@@ -377,6 +389,7 @@ def main() -> None:
       axis=axis,
       input_root=input_root,
       p_values=p_values,
+      draw_stats=not args.no_stats,
       metric=metric,
       title=title,
       unit=unit,

@@ -1,7 +1,4 @@
-import math
-
 from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.managers import TerminationTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
@@ -13,7 +10,6 @@ from mjlab.tasks.velocity import mdp as vel_mdp
 from yahmp import mdp
 from yahmp.yahmp_locomotion_env_cfg import (
     HISTORY_LENGTH,
-    PUSH_VELOCITY_RANGE,
     _privileged_terms,
     _proprio_actor_terms,
     _proprio_critic_terms,
@@ -24,11 +20,15 @@ PUSH_COMMAND_NAME = "push"
 
 
 def _push_command_cfg() -> mdp.PushGoalCommandCfg:
+    # resampling_time ~inf: goals are resampled ON REACH (multi-goal), never by
+    # the timer — a mid-push timer expiry would teleport the goal with no success.
+    # distance/angle ranges match curriculum stage 0 (they're overwritten by
+    # push_command_levels from the very first reset, `>=` guard).
     return mdp.PushGoalCommandCfg(
         entity_name="robot",
-        resampling_time_range=(20, 30),
-        distance_range=(1.0, 2.0),
-        angle_range=(-0.8, 0.8),
+        resampling_time_range=(1e9, 1e9),
+        distance_range=(0.5, 1.0),
+        angle_range=(-0.4, 0.4),
         reach_tol=0.2,
     )
 
@@ -53,14 +53,14 @@ def _history_term(*, include_privileged: bool = False) -> ObservationTermCfg:
 
 def _rewards() -> dict[str, RewardTermCfg]:
     return {
-        "push_velocity_tracking": RewardTermCfg(
-            func=mdp.push_velocity_tracking_exp,
+        "push_speed_limit": RewardTermCfg(
+            func=mdp.push_speed_limit,
             weight=0.5,
-            params={"command_name": PUSH_COMMAND_NAME, "std": 0.5, "cruise_speed": 1.1},
+            params={"command_name": PUSH_COMMAND_NAME, "v_max": 1.2},
         ),
         "push_progress": RewardTermCfg(
             func=mdp.push_progress,
-            weight=1.0,
+            weight=2.0,  # task motor: ~2x distance pushed per episode
             params={
                 "command_name": PUSH_COMMAND_NAME,
                 "cap": 2.0,
@@ -68,24 +68,25 @@ def _rewards() -> dict[str, RewardTermCfg]:
         ),
         "push_position_tracking": RewardTermCfg(
             func=mdp.push_position_tracking_exp,
-            weight=0.5,
+            weight=0.1,  # last-20cm guide only; higher makes parking profitable
             params={"command_name": PUSH_COMMAND_NAME, "std": 0.5},
         ),
         "push_success": RewardTermCfg(
             func=mdp.push_success_bonus,
-            weight=50.0,
+            weight=100.0,  # 100*dt=2.0/goal: completing >> parking (x13 margin)
             params={
                 "command_name": PUSH_COMMAND_NAME,
             },
         ),
         "push_hands_on_crate": RewardTermCfg(
             func=mdp.push_hands_on_crate,
-            weight=0.4,
-            params={
-                "command_name": PUSH_COMMAND_NAME,
-                "std": 0.4,
-                "asset_cfg": SceneEntityCfg("robot", body_names=(".*_wrist_yaw_link",)),
-            },
+            weight=0.5,  # bootstrap shaping; at 2.0 hand-gluing dwarfed the task
+            params={"command_name": PUSH_COMMAND_NAME, "std": 0.35},
+        ),
+        "push_hands_contact": RewardTermCfg(
+            func=mdp.push_hands_contact,
+            weight=0.25,  # nudge + wandb metric; overlaps push_hands_on_crate
+            params={"sensor_name": "hands_crate_contact"},
         ),
     }
 
@@ -154,17 +155,14 @@ def make_push_env_cfg() -> ManagerBasedRlEnvCfg:
         ),
     }
 
-    cfg.events["push_robot"].func = mdp.push_moving_envs_by_robot_speed
-    cfg.events["push_robot"].params = {
-        "velocity_range": PUSH_VELOCITY_RANGE,
-        "speed_threshold": 0.3,
-    }
+    # No external push perturbations on the robot in this task: random shoves
+    # would knock the hands off the crate mid-push and fight the hand-gate.
+    cfg.events.pop("push_robot", None)
 
     cfg.rewards = _rewards()
-    cfg.terminations["reached_goal"] = TerminationTermCfg(
-        func=mdp.reached_termination,
-        params={"command_name": PUSH_COMMAND_NAME},
-    )
+    # MULTI-GOAL: no reached_goal termination — reaching resamples the next goal
+    # in-episode (see PushGoalCommand._update_command); episodes end on
+    # time_out/fell_over only.
 
     # Keep the (fixed, in-front) crate actually in front of the robot: constrain
     # the base reset to a narrow forward cone / small offset instead of the full
@@ -188,7 +186,9 @@ def make_push_env_cfg() -> ManagerBasedRlEnvCfg:
     )
 
     cfg.curriculum = _curriculum()
-    cfg.episode_length_s = 20.0
+    # Longer episodes so each one holds several goal cycles (push, reach,
+    # re-position around the crate, push again).
+    cfg.episode_length_s = 30.0
 
     commands: dict[str, CommandTermCfg] = cfg.commands  # type: ignore[assignment]
     assert PUSH_COMMAND_NAME in commands

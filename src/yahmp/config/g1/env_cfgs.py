@@ -413,17 +413,29 @@ def unitree_g1_yahmp_push_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
     cfg = _apply_unitree_g1_locomotion_overrides(make_push_env_cfg(), play=play)
     cfg.scene.entities["crate"] = _crate_entity_cfg()
-    # cfg.scene.sensors = cfg.scene.sensors + (
-    #     _hands_crate_sensor(),
-    #     _torso_crate_sensor(),
-    # )
+    cfg.scene.sensors = cfg.scene.sensors + (_hands_crate_sensor(),)
     return cfg
+
+
+def _hands_crate_sensor() -> ContactSensorCfg:
+    return ContactSensorCfg(
+        name="hands_crate_contact",
+        primary=ContactMatch(
+            mode="subtree",
+            pattern=r".*_wrist_yaw_link",
+            entity="robot",
+        ),
+        secondary=ContactMatch(mode="body", pattern="crate", entity="crate"),
+        fields=("found",),
+        reduce="netforce",
+        num_slots=1,
+    )
 
 
 def _crate_entity_cfg() -> EntityCfg:
     return EntityCfg(
         spec_fn=_crate_spec,
-        init_state=EntityCfg.InitialStateCfg(pos=(0.6, 0.0, 0.35)),
+        init_state=EntityCfg.InitialStateCfg(pos=(0.7, 0.0, 0.4)),
     )
 
 
@@ -431,9 +443,9 @@ def _crate_spec() -> mj.MjSpec:
     static_model = """
         <mujoco>
         <worldbody>
-            <body name="crate" pos="0 0 0.5">
+            <body name="crate" pos="0 0 0.4">
                 <freejoint/>
-                <geom name="crate_geom" type="box" size="0.2 0.2 0.35" mass="5" friction="0.8 0.02 0.001" rgba="0.6 0.4 0.2 1"/>
+                <geom name="crate_geom" type="box" size="0.3 0.3 0.4" mass="12" friction="0.5 0.02 0.001" rgba="0.6 0.4 0.2 1"/>
             </body>
         </worldbody>
         </mujoco>

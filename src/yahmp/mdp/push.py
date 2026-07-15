@@ -27,6 +27,7 @@ __all__ = [
     "push_position_tracking_exp",
     "push_hands_on_crate",
     "push_hands_contact",
+    "push_body_contact_penalty",
     "push_command_levels",
     "reached_termination",
 ]
@@ -65,6 +66,14 @@ class PushGoalCommand(CommandTerm):
             self.num_envs, len(hand_ids), device=self.device
         )
         self.hands_gate = torch.zeros(self.num_envs, device=self.device)
+        # True while any NON-hand robot geom touches the crate (chest, knees,
+        # feet, ...). Kills the gate: proximity alone proved gameable — the
+        # body-press posture leaves the dangling hands "near the surface" while
+        # the torso/knees do the pushing.
+        self.body_contact = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
+        self.metrics["body_contact"] = torch.zeros(self.num_envs, device=self.device)
 
     @property
     def command(self) -> torch.Tensor:
@@ -181,7 +190,15 @@ class PushGoalCommand(CommandTerm):
         clamped = torch.clamp(local, -self._half_extents, self._half_extents)
         self.hands_surface_dist = torch.linalg.norm(local - clamped, dim=-1)  # (N,H)
         d_min = self.hands_surface_dist.min(dim=-1).values  # (N,)
-        self.hands_gate = torch.exp(-torch.square(d_min) / (self.cfg.gate_std**2))
+        proximity = torch.exp(-torch.square(d_min) / (self.cfg.gate_std**2))
+
+        # Kill switch: the gate is proximity AND no body contact. Without this
+        # the policy learns the body-press (hands dangle "near" the crate while
+        # chest/knees push -> proximity gate saturates at ~0.97 for free).
+        body_found = self._env.scene[self.cfg.body_contact_sensor_name].data.found
+        assert body_found is not None
+        self.body_contact = (body_found > 0).any(dim=-1)
+        self.hands_gate = proximity * (~self.body_contact).float()
 
         ##Oppure con i quaternioni:
         # pos_robot_w = self.robot.data.root_com_pos_w  # (N, 3)
@@ -195,6 +212,7 @@ class PushGoalCommand(CommandTerm):
     def _update_metrics(self) -> None:
         self.metrics["distance"] = self.distance
         self.metrics["hands_gate"] = self.hands_gate
+        self.metrics["body_contact"] = self.body_contact.float()
 
     def _debug_vis_impl(self, visualizer: "DebugVisualizer") -> None:
         """Draw the goal (where the crate must end up) as a sphere, plus a segment
@@ -239,13 +257,9 @@ class PushGoalCommandCfg(CommandTermCfg):
     distance_range: tuple[float, float] = (0.5, 1.5)
     angle_range: tuple[float, float] = (-0.5, 0.5)
     reach_tol: float = 0.2
-    # Crate box half-extents (MUST match the crate geom ``size`` in
-    # ``_crate_spec``); used to measure hand->surface distance for the gate.
-    crate_half_extents: tuple[float, float, float] = (0.3, 0.3, 0.4)
-    # Width of the soft gate on hand->crate-surface distance. A hand this far
-    # from the surface earns ~37% of the gated (crate-outcome) rewards.
+    crate_half_extents: tuple[float, float, float] = (0.65, 0.65, 0.65)
     gate_std: float = 0.35
-    # Draw the goal marker + crate->goal segment in the viewer by default.
+    body_contact_sensor_name: str = "body_crate_contact"
     debug_vis: bool = True
 
     def build(self, env: ManagerBasedRlEnv) -> PushGoalCommand:
@@ -290,10 +304,6 @@ def push_velocity_tracking_exp(
 def push_speed_limit(
     env: ManagerBasedRlEnv, command_name: str, v_max: float = 1.2
 ) -> torch.Tensor:
-    """Walk-not-run as a PENALTY (not a reward): 0 while walking/standing, negative
-    only above ``v_max`` (discourages the running primitives). Unlike a target-speed
-    bowl this pays nothing for moving, so it can't be farmed by circling. Use with a
-    positive weight (the value is <= 0)."""
     command = _push_command(env, command_name)
     speed = torch.linalg.norm(command.robot.data.root_com_lin_vel_w[..., :2], dim=-1)
     excess = torch.clamp(speed - v_max, min=0.0)
@@ -318,9 +328,6 @@ def reached_termination(env: ManagerBasedRlEnv, command_name: str) -> torch.Tens
 def push_hands_on_crate(
     env: ManagerBasedRlEnv, command_name: str, std: float = 0.35
 ) -> torch.Tensor:
-    """Dense shaping: pull the hands onto the crate SURFACE. Uses the hand->surface
-    distance computed once per step in the command (single source of truth, shared
-    with the gate). Ungated so it can guide the hands in before the gate opens."""
     command = _push_command(env, command_name)
     return torch.exp(-torch.square(command.hands_surface_dist) / (std**2)).mean(dim=-1)
 
@@ -328,13 +335,19 @@ def push_hands_on_crate(
 def push_hands_contact(
     env: ManagerBasedRlEnv, sensor_name: str = "hands_crate_contact"
 ) -> torch.Tensor:
-    """Fraction of hands (0, 0.5, 1) in actual physical contact with the crate,
-    read from the ``hands_crate_contact`` contact sensor. The true physical signal
-    (can't be gamed by hovering) and a clean wandb metric."""
     sensor = env.scene[sensor_name]
     found = sensor.data.found  # (N, H)
     assert found is not None
     return (found > 0).float().mean(dim=-1)
+
+
+def push_body_contact_penalty(
+    env: ManagerBasedRlEnv, sensor_name: str = "body_crate_contact"
+) -> torch.Tensor:
+    sensor = env.scene[sensor_name]
+    found = sensor.data.found  # (N, G)
+    assert found is not None
+    return -(found > 0).any(dim=-1).float()
 
 
 def _push_command(env: ManagerBasedRlEnv, command_name: str) -> PushGoalCommand:

@@ -88,6 +88,12 @@ def _rewards() -> dict[str, RewardTermCfg]:
             weight=0.25,  # nudge + wandb metric; overlaps push_hands_on_crate
             params={"sensor_name": "hands_crate_contact"},
         ),
+        "push_body_contact": RewardTermCfg(
+            func=mdp.push_body_contact_penalty,
+            weight=0.5,  # body touching the crate also zeroes the gate; this
+            # small explicit cost just makes the causality easier to learn
+            params={"sensor_name": "body_crate_contact"},
+        ),
     }
 
 
@@ -100,8 +106,8 @@ def _curriculum() -> dict[str, CurriculumTermCfg]:
                 "stages": [
                     {
                         "step": 0,
-                        "distance_range": (0.5, 1.0),
-                        "angle_range": (-0.4, 0.4),
+                        "distance_range": (2.0, 3.0),
+                        "angle_range": (-2.0, 2.0),
                     },
                     {
                         "step": 1000 * 24,

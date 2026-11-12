@@ -1,108 +1,171 @@
-# YAHMP: Yet Another Humanoid Motion tracking Policy
+# YAHMP: Yet Another Humanoid Motion Tracking Policy
 
 [![mjlab](https://img.shields.io/badge/mjlab-1.2.0-orange.svg)](https://mujocolab.github.io/mjlab/main/index.html)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-**YAHMP** is a humanoid general motion tracking policy for the Unitree G1 robot.
-
-The training pipeline builds upon [`mjlab`](https://github.com/mujocolab/mjlab).
+YAHMP is an open-source framework for training, evaluating, and deploying general motion tracking policies on the Unitree G1. It is built on top of [mjlab](https://github.com/mujocolab/mjlab) and includes the nominal policy, the design variants studied in the accompanying paper, and a privileged teacher-student training pipeline.
 
 <https://github.com/user-attachments/assets/d53fc62a-8915-48dd-914e-4514efe26a1d>
 
+The supplementary video is available at <https://youtu.be/BH6FpQzwm8M>.
+
 ## Installation
 
-First, install [`uv`](https://docs.astral.sh/uv/):
+YAHMP supports Python 3.11--3.13. Install [`uv`](https://docs.astral.sh/uv/) and create the project environment:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-Then install the project dependencies with:
-
-```bash
+git clone https://github.com/fabio-amadio/yahmp.git
+cd yahmp
 uv sync
 ```
 
-Finally, verify that the YAHMP environments are correctly installed and visible with:
+Verify that the tasks are registered:
 
 ```bash
-uv run list_envs | rg YAHMP
+uv run list_envs | grep YAHMP
 ```
 
 ## Motion Assets
 
-Download the retargeted [OMOMO](https://github.com/lijiaman/omomo_releaseamss) and [AMASS](https://amass.is.tue.mpg.de/) motions used for training from [this link](https://drive.google.com/file/d/13GOHVAp5plhQCbUCrOnD_aOkqwy46gHi/view?usp=drive_link), extract the archive, and copy the `g1_omomo_amass_clean` folder into `assets/motions/`.
+Download the retargeted [OMOMO](https://github.com/lijiaman/omomo_release) and [AMASS](https://amass.is.tue.mpg.de/) motions from [Google Drive](https://drive.google.com/file/d/13GOHVAp5plhQCbUCrOnD_aOkqwy46gHi/view?usp=sharing). Extract the archive so that the dataset is located at:
 
-The default motion configuration [`src/yahmp/config/g1/motion_data_cfg.yaml`](src/yahmp/config/g1/motion_data_cfg.yaml) specifies which motions are loaded during training—modify it if you want to use different reference datasets.
+```text
+assets/motions/g1_omomo_amass_clean/
+```
 
-## Quick Checks
+The default motion configuration is [`src/yahmp/config/g1/motion_data_cfg.yaml`](src/yahmp/config/g1/motion_data_cfg.yaml). The supported motion formats are described in [`assets/motions/README.md`](assets/motions/README.md).
 
-Smoke-test the base YAHMP scene with a zero-action agent:
+## Tasks
+
+The nominal policy uses a 10-step observation history, joint-position and joint-velocity references, residual actions, and mechanics-based PD gains and action scales.
+
+| Configuration | Task ID | Difference from nominal |
+| --- | --- | --- |
+| Nominal | `Mjlab-YAHMP-Unitree-G1` | - |
+| No history | `Mjlab-YAHMP-NoHistory-Unitree-G1` | Removes observation history and its encoder |
+| History-20 | `Mjlab-YAHMP-History20-Unitree-G1` | Uses a 20-step observation history |
+| Position-reference-only | `Mjlab-YAHMP-QOnly-Unitree-G1` | Removes reference joint velocities |
+| No residual | `Mjlab-YAHMP-NoResidual-Unitree-G1` | Applies actions around a fixed default posture |
+| Stiffer fixed-scale | `Mjlab-YAHMP-StiffPD-Unitree-G1` | Uses stiffer PD gains and constant action scales |
+| Hand-force randomization | `Mjlab-YAHMP-HandForceRand-Unitree-G1` | Applies randomized feasible forces at the hands during training |
+| Privileged teacher | `Mjlab-YAHMP-Teacher-Unitree-G1` | Trains the privileged teacher used by the student |
+| Teacher-student | `Mjlab-YAHMP-Student-RL+KL-Matching-Unitree-G1` | Trains the deployable student with PPO and KL matching |
+
+## Training
+
+Run a short local smoke test without W&B:
+
+```bash
+uv run train Mjlab-YAHMP-Unitree-G1 \
+  --env.scene.num-envs 64 \
+  --agent.max-iterations 2 \
+  --agent.logger tensorboard
+```
+
+Train the nominal policy with the paper configuration:
+
+```bash
+uv run train Mjlab-YAHMP-Unitree-G1 \
+  --env.scene.num-envs 8192
+```
+
+Training uses W&B by default and runs for 20,000 PPO iterations. Replace the task ID with any entry in the table to train that configuration. To keep a full run local, add `--agent.logger tensorboard`.
+
+### Teacher-Student Training
+
+First train the privileged teacher:
+
+```bash
+uv run train Mjlab-YAHMP-Teacher-Unitree-G1 \
+  --env.scene.num-envs 8192
+```
+
+Then train the student from the teacher checkpoint:
+
+```bash
+uv run train Mjlab-YAHMP-Student-RL+KL-Matching-Unitree-G1 \
+  --env.scene.num-envs 8192 \
+  --agent.teacher-checkpoint-file /path/to/teacher/model_latest.pt
+```
+
+A teacher stored on W&B can instead be selected with `--agent.teacher-wandb-run-path entity/project/run_id`.
+
+## Playback
+
+Check the environment with a zero-action policy:
 
 ```bash
 uv run play Mjlab-YAHMP-Unitree-G1 --agent zero
 ```
 
-## Training
+Play a local training checkpoint:
 
 ```bash
-uv run train Mjlab-YAHMP-Unitree-G1 --env.scene.num-envs 8192
+uv run play Mjlab-YAHMP-Unitree-G1 \
+  --checkpoint-file /path/to/model_latest.pt
 ```
 
-## Run Pre-trained Policy
+Use `--motion-file /path/to/motion.npz` to select a motion and `--video True` to record the rollout. A checkpoint stored on W&B can be loaded with `--wandb-run-path entity/project/run_id`.
+
+## ONNX Export
+
+Export a trained model to ONNX format:
+
+```bash
+uv run python -m yahmp.scripts.deploy.export_checkpoint_to_onnx \
+  --task-id Mjlab-YAHMP-Unitree-G1 \
+  --checkpoint-file /path/to/model_latest.pt \
+  --output-path assets/models/exported_policy.onnx
+```
+
+## Evaluation and Utilities
+
+The repository includes the nominal policy at [`assets/models/g1_yahmp.onnx`](assets/models/g1_yahmp.onnx).
+
+Run the nominal policy directly in MuJoCo:
 
 ```bash
 uv run python -m yahmp.scripts.deploy.run_yahmp_onnx_mujoco \
   --task-id Mjlab-YAHMP-Unitree-G1 \
-  --onnx-path assets/models/g1_yahmp.onnx \
+  --onnx-path assets/models/exported_policy.onnx \
   --motion-file assets/motions/g1_omomo_amass_clean/<motion-name>.npz
 ```
 
-## Utilities
-
-Utility scripts for data conversion, ONNX export, deployment, evaluation, and workflow helpers live under [`src/yahmp/scripts`](src/yahmp/scripts). See the dedicated guide at [`src/yahmp/scripts/README.md`](src/yahmp/scripts/README.md).
-
-## Extras
-
-### YAHMP-Future
-
-`Mjlab-YAHMP-Future-Unitree-G1` is a YAHMP variant that augments the base policy with a future-motion encoder. The actor still receives the current motion reference and proprioceptive observations directly, but it also encodes a short horizon of future motion references, which can help anticipate upcoming motion changes.
+Evaluate the nominal policy over the configured motion dataset:
 
 ```bash
-uv run train Mjlab-YAHMP-Future-Unitree-G1 --env.scene.num-envs 8192
+uv run python -m yahmp.scripts.evaluation.evaluate_policy \
+  --onnx-path assets/models/g1_yahmp.onnx \
+  --output-dir assets/logs/yahmp_eval
 ```
 
-### Teacher-Student pipeline
+Motion rendering, checkpoint export, and evaluation commands are documented in [`src/yahmp/scripts/README.md`](src/yahmp/scripts/README.md).
 
-In addition to `Mjlab-YAHMP-Unitree-G1`, this project also includes environments that together form an example Teacher–Student training pipeline:
+## Citation
 
-- `Mjlab-YAHMP-Teacher-Unitree-G1`: privileged teacher example  
-- `Mjlab-YAHMP-Student-RL+Action-Matching-Unitree-G1`: student trained via RL + Action-Matching distillation  
-- `Mjlab-YAHMP-Student-RL+KL-Matching-Unitree-G1`: student trained via RL + KL-Matching distillation
+This repository accompanies the paper *What Matters in Humanoid General Motion Tracking? An Empirical Study*, accepted at Humanoids 2026:
 
-```bash
-# 1. Train the teacher
-uv run train Mjlab-YAHMP-Teacher-Unitree-G1 --env.scene.num-envs 8192
-
-# 2. Train the student from the teacher W&B run
-uv run train Mjlab-YAHMP-Student-RL+Action-Matching-Unitree-G1 \
-  --env.scene.num-envs 8192 \
-  --agent.teacher-wandb-run-path entity/project/teacher_run_id
+```bibtex
+@inproceedings{amadio2026what,
+  title = {What Matters in Humanoid General Motion Tracking? An Empirical Study},
+  author = {Amadio, Fabio and Mingo Hoffman, Enrico},
+  booktitle = {IEEE-RAS International Conference on Humanoid Robots (Humanoids)},
+  year = {2026}
+}
 ```
-
-To resume a student run from W&B, use the student run path with `--agent.resume True --wandb-run-path entity/project/student_run_id`. You only need `--agent.teacher-wandb-run-path ...` again if you want to override the embedded teacher with a different one.
 
 ## Development
 
-Install the dev tools with:
+Install the development dependencies and run the checks with:
 
 ```bash
 uv sync --group dev
-```
-
-Format and auto-fix the repo with:
-
-```bash
 make format
+make check
 ```
+
+## License
+
+YAHMP is released under the [Apache 2.0 license](LICENSE).

@@ -1,139 +1,75 @@
 # YAHMP Scripts
 
-This folder contains standalone scripts for data preparation, ONNX export, deployment, evaluation, and small workflow helpers.
-
-General pattern:
+Run each script as a Python module and use `--help` to inspect all options:
 
 ```bash
 uv run python -m yahmp.scripts.<group>.<script> --help
 ```
 
-## Layout
+## Motion Data
 
-- `data/`: motion data conversion and rendering
-- `deploy/`: export trained checkpoints to ONNX and run ONNX policies in MuJoCo
-- `evaluation/`: batch evaluation and comparison scripts
-- `utils/`: small workflow helpers
+### `expand_npz_motion_dataset.py`
 
-## Data
-
-### `convert_pkl_dataset_to_npz.py`
-
-Convert PKL motion datasets to NPZ format:
+Expand compact NPZ motions into deploy-friendly NPZs with precomputed joint velocities and body world kinematics:
 
 ```bash
-uv run python -m yahmp.scripts.data.convert_pkl_dataset_to_npz \
-  --input-root assets/motions/g1_motions_pkls \
-  --output-root assets/motions/g1_motions_npz
+uv run python -m yahmp.scripts.data.expand_npz_motion_dataset \
+  --input-root assets/motions/g1_omomo_amass_clean \
+  --output-root assets/motions/g1_omomo_amass_clean_full
 ```
 
-### `render_reference_motions.py`
-
-Renders one `.mp4` per reference motion clip. The output folder mirrors the motion source subfolder layout.
+Render reference motions from the configured dataset:
 
 ```bash
 uv run python -m yahmp.scripts.data.render_reference_motions \
-  --motion-source src/yahmp/config/g1/motion_data_cfg.yaml \
-  --output-dir assets/motions/g1_motion_videos \
-  --max-motions 10 \
-  --overwrite
+  --output-dir assets/motions/rendered \
+  --max-motions 10
 ```
 
-## Deployment
+## Checkpoints and ONNX
 
-### `export_checkpoint_to_onnx.py`
-
-Export a trained checkpoint to ONNX:
+Play a local checkpoint:
 
 ```bash
-uv run python -m yahmp.scripts.deploy.export_checkpoint_to_onnx \
-  --task-id Mjlab-YAHMP-Unitree-G1 \
-  --checkpoint-file /path/to/model.pt \
-  --output-path assets/models/<your-model-name>.onnx
+uv run play Mjlab-YAHMP-Unitree-G1 \
+  --checkpoint-file /path/to/model_latest.pt
 ```
 
-You can also export directly from a W&B run:
+Download and play a checkpoint from W&B:
 
 ```bash
-uv run python -m yahmp.scripts.deploy.export_checkpoint_to_onnx \
-  --task-id Mjlab-YAHMP-Unitree-G1 \
+uv run play Mjlab-YAHMP-Unitree-G1 \
   --wandb-run-path entity/project/run_id
 ```
 
-### `run_yahmp_onnx_mujoco.py`
+Export a local checkpoint to ONNX:
 
-Run an exported YAHMP ONNX policy in MuJoCo:
+```bash
+uv run python -m yahmp.scripts.deploy.export_checkpoint_to_onnx \
+  --task-id Mjlab-YAHMP-Unitree-G1 \
+  --checkpoint-file /path/to/model_latest.pt \
+  --output-path assets/models/exported_policy.onnx
+```
+
+The exporter also accepts `--wandb-run-path entity/project/run_id` in place of `--checkpoint-file`.
+
+Run an ONNX policy in MuJoCo:
 
 ```bash
 uv run python -m yahmp.scripts.deploy.run_yahmp_onnx_mujoco \
   --task-id Mjlab-YAHMP-Unitree-G1 \
-  --onnx-path assets/models/g1_yahmp.onnx \
-  --motion-file assets/motions/g1_omomo_amass_clean/<motion-name>.npz
-```
-
-### `run_twist2_onnx_mujoco.py`
-
-Run the original TWIST2 ONNX for reproducibility experiments:
-
-```bash
-uv run python -m yahmp.scripts.deploy.run_twist2_onnx_mujoco \
-  --onnx-path assets/models/twist2_1017_25k.onnx \
+  --onnx-path assets/models/exported_policy.onnx \
   --motion-file assets/motions/g1_omomo_amass_clean/<motion-name>.npz
 ```
 
 ## Evaluation
 
-### `evaluate_yahmp_onnx_success_parallel.py`
-
-Evaluate a base YAHMP ONNX checkpoint over all the motions:
+Evaluate the nominal policy on all motions in the configured dataset:
 
 ```bash
-uv run python -m yahmp.scripts.evaluation.evaluate_yahmp_onnx_success_parallel \
+uv run python -m yahmp.scripts.evaluation.evaluate_policy \
   --task-id Mjlab-YAHMP-Unitree-G1 \
   --onnx-path assets/models/g1_yahmp.onnx \
+  --num-envs 256 \
   --output-dir assets/logs/yahmp_eval
-```
-
-Resume an interrupted evaluation from an existing CSV:
-
-```bash
-uv run python -m yahmp.scripts.evaluation.evaluate_yahmp_onnx_success_parallel \
-  --task-id Mjlab-YAHMP-Unitree-G1 \
-  --onnx-path assets/models/g1_yahmp.onnx \
-  --output-dir assets/logs/yahmp_eval \
-  --resume True
-```
-
-### `evaluate_twist2_onnx_success_parallel.py`
-
-Evaluate the original TWIST2 ONNX under the same batch evaluation pipeline:
-
-```bash
-uv run python -m yahmp.scripts.evaluation.evaluate_twist2_onnx_success_parallel \
-  --onnx-path assets/models/twist2_1017_25k.onnx \
-  --output-dir assets/logs/twist2_eval
-```
-
-Both parallel evaluators use the same falling-only failure criterion.
-
-### `plot_tracking_metrics_boxplot.py`
-
-Plot paired tracking-metric boxplots from two per-motion CSV files:
-
-```bash
-uv run python -m yahmp.scripts.evaluation.plot_tracking_metrics_boxplot \
-  --twist2-csv assets/logs/twist2_eval/per_motion_success.csv \
-  --yahmp-csv assets/logs/yahmp_eval/per_motion_success.csv
-```
-
-## Utils
-
-### `play_checkpoint.py`
-
-Play a checkpoint from a W&B run using a modified version of mjlab `play.py` script adapted to handle YAHMP runs that only expose `model_latest.pt` rolling checkpoints.
-
-```bash
-uv run python -m yahmp.scripts.utils.play_checkpoint \
-  Mjlab-YAHMP-Unitree-G1 \
-  --wandb-run-path entity/project/run_id
 ```

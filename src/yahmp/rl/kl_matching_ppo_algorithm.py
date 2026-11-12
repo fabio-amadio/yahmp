@@ -46,8 +46,8 @@ class YahmpKlMatchingPPO(PPO):
     kl_coef = self._current_kl_coef()
     if kl_coef > 0.0 and not self.actor.loaded_teacher:
       raise ValueError(
-        "Teacher weights are not loaded. Resume from a YAHMP distillation "
-        "checkpoint (or a KL-matching RL checkpoint) before running KlMatchingPPO."
+        "Teacher weights are not loaded. Provide `--agent.teacher-checkpoint-file` "
+        "or `--agent.teacher-wandb-run-path` when starting the student run."
       )
 
     mean_value_loss = 0.0
@@ -175,27 +175,3 @@ class YahmpKlMatchingPPO(PPO):
       "kl": mean_kl_loss,
       "kl_coef": kl_coef,
     }
-
-  def load(self, loaded_dict: dict, load_cfg: dict | None, strict: bool) -> bool:
-    if (
-      "student_state_dict" in loaded_dict
-      and "teacher_state_dict" in loaded_dict
-      and "actor_state_dict" not in loaded_dict
-    ):
-      if load_cfg is None:
-        load_cfg = {
-          "actor": True,
-          "critic": False,
-          "optimizer": False,
-          "iteration": False,
-          "rnd": False,
-        }
-      if load_cfg.get("actor"):
-        self.actor.load_distillation_state(
-          loaded_dict["student_state_dict"],
-          loaded_dict["teacher_state_dict"],
-          strict=strict,
-        )
-      return load_cfg.get("iteration", False)
-
-    return super().load(loaded_dict, load_cfg, strict)

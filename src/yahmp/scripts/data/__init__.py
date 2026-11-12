@@ -1,1 +1,1 @@
-"""Motions data conversion and rendering."""
+"""Motion-data rendering utilities."""

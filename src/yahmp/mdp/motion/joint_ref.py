@@ -8,7 +8,10 @@ from typing import TYPE_CHECKING
 import torch
 
 from .base import MotionCommand, MotionCommandCfg
-from .representations import joint_ref_anchor_rp_representation
+from .representations import (
+  joint_ref_anchor_rp_representation,
+  joint_ref_only_anchor_rp_representation,
+)
 
 if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
@@ -34,9 +37,36 @@ class JointRefAnchorRpMotionCommand(MotionCommand):
     return super().get_command_representation(representation_name)
 
 
+class JointRefOnlyAnchorRpMotionCommand(MotionCommand):
+  """Single-step joint references without joint-velocity references."""
+
+  cfg: JointRefOnlyAnchorRpMotionCommandCfg
+
+  def get_command_representation(
+    self, representation_name: str = "default"
+  ) -> torch.Tensor:
+    if representation_name == "default":
+      return joint_ref_only_anchor_rp_representation(
+        self.joint_pos,
+        self.anchor_pos_w,
+        self.anchor_quat_w,
+        self.anchor_lin_vel_w,
+        self.anchor_ang_vel_w,
+      )
+    return super().get_command_representation(representation_name)
+
+
 @dataclass(kw_only=True)
 class JointRefAnchorRpMotionCommandCfg(MotionCommandCfg):
   """Configuration for single-step joint-ref+anchor roll/pitch commands."""
 
   def build(self, env: ManagerBasedRlEnv) -> MotionCommand:
     return JointRefAnchorRpMotionCommand(self, env)
+
+
+@dataclass(kw_only=True)
+class JointRefOnlyAnchorRpMotionCommandCfg(MotionCommandCfg):
+  """Configuration for single-step joint-ref-only commands."""
+
+  def build(self, env: ManagerBasedRlEnv) -> MotionCommand:
+    return JointRefOnlyAnchorRpMotionCommand(self, env)

@@ -5,9 +5,6 @@ Internal implementation of YAHMP motion commands:
 - `JointRefAnchorRpMotionCommandCfg`
 - `FutureJointRefAnchorRpMotionCommandCfg`
 - `TeacherStudentJointRefAnchorRpMotionCommandCfg`
-- `HandBaseMotionCommandCfg`
-
-`HandBase` is kept only as a minimal example command. The YAHMP environments use the joint-reference family.
 
 ## Files
 
@@ -21,10 +18,7 @@ Internal implementation of YAHMP motion commands:
   The future-stacked variant used by the teacher.
 
 - `teacher_student.py`
-  Dual-view variant used for distillation. `"default"` matches base YAHMP; `"teacher"` exposes the future-stacked teacher view.
-
-- `hand_base.py`
-  Example hand/base command kept as a reference implementation.
+  Dual-view variant used for teacher-guided training. `"default"` matches base YAHMP; `"teacher"` exposes the future-stacked teacher view.
 
 - `representations.py`
   Tensor serialization helpers for the active command layouts.

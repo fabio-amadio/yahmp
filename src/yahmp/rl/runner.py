@@ -456,14 +456,9 @@ class YahmpStudentOnPolicyRunner(YahmpOnPolicyRunner):
     loaded_dict = torch.load(
       checkpoint_path, map_location=self.device, weights_only=False
     )
-    teacher_state_dict = loaded_dict.get("teacher_state_dict")
+    teacher_state_dict = loaded_dict.get("actor_state_dict")
     if teacher_state_dict is None:
-      teacher_state_dict = loaded_dict.get("actor_state_dict")
-    if teacher_state_dict is None:
-      raise ValueError(
-        "Teacher checkpoint does not contain `teacher_state_dict` or "
-        "`actor_state_dict`."
-      )
+      raise ValueError("Teacher checkpoint does not contain `actor_state_dict`.")
     _normalize_gaussian_distribution_state_dict(teacher_state_dict)
     actor.teacher.load_state_dict(
       teacher_state_dict,

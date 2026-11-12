@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import pickle
 import sys
 import warnings
 from dataclasses import dataclass
@@ -120,10 +119,8 @@ def load_motion_file(
   path = Path(motion_file).expanduser()
   if path.suffix == ".npz":
     payload = _load_npz_motion(path)
-  elif path.suffix in (".pkl", ".pickle"):
-    payload = _load_twist2_pkl_motion(path)
   else:
-    raise ValueError(f"Unsupported motion file extension: {path}")
+    raise ValueError(f"Expected an NPZ motion file, got: {path}")
 
   selected_indices: np.ndarray | None = None
   selected_body_names = payload.body_names
@@ -582,44 +579,6 @@ def _cached_g1_fk_context() -> tuple[
   return model, data, free_qadr, tuple(joint_q_indices), tuple(body_ids), body_names
 
 
-def _load_pickle_dict(path: Path) -> dict[str, object]:
-  with path.open("rb") as f:
-    data = pickle.load(f)
-  if not isinstance(data, dict):
-    raise ValueError(f"Invalid PKL object type in {path}: {type(data)}")
-  return data
-
-
-def _pkl_quat_convention(motion: dict[str, object]) -> str:
-  return _quat_convention_from_env(
-    env_name="YAHMP_MOTION_PKL_QUAT_CONVENTION",
-    default="xyzw",
-  )
-
-
-def _load_twist2_pkl_motion(path: Path) -> LoadedMotionData:
-  motion = _load_pickle_dict(path)
-  required_keys = {"root_pos", "root_rot", "dof_pos"}
-  missing = required_keys.difference(set(motion.keys()))
-  if missing:
-    raise ValueError(f"Invalid motion pkl. Missing keys: {sorted(missing)} in {path}")
-
-  root_quat = np.asarray(motion["root_rot"], dtype=np.float64)
-  raw = RawMotionData(
-    fps=motion.get("fps", 30.0),
-    joint_pos=np.asarray(motion["dof_pos"], dtype=np.float32),
-    joint_vel=_extract_optional_array(motion, "joint_vel", dtype=np.float32),
-    root_pos=np.asarray(motion["root_pos"], dtype=np.float64),
-    root_quat_w=_to_wxyz(root_quat, _pkl_quat_convention(motion)),
-    body_pos_w=_extract_optional_array(motion, "body_pos_w", dtype=np.float32),
-    body_quat_w=_extract_optional_array(motion, "body_quat_w", dtype=np.float32),
-    body_lin_vel_w=_extract_optional_array(motion, "body_lin_vel_w", dtype=np.float32),
-    body_ang_vel_w=_extract_optional_array(motion, "body_ang_vel_w", dtype=np.float32),
-    body_names=MotionLoader._extract_body_names(motion),
-  )
-  return _finalize_motion_data(raw, source=path)
-
-
 def _resolve_required_body_indices(
   file_body_names: tuple[str, ...],
   required_body_names: tuple[str, ...],
@@ -856,9 +815,7 @@ class MotionLibrary:
 
   @staticmethod
   def _find_motion_files(root: Path) -> list[Path]:
-    return sorted(
-      path for suffix in ("*.npz", "*.pkl", "*.pickle") for path in root.rglob(suffix)
-    )
+    return sorted(root.rglob("*.npz"))
 
   @classmethod
   def _resolve_motion_entries(
@@ -870,10 +827,10 @@ class MotionLibrary:
     if source.is_dir():
       files = cls._find_motion_files(source)
       return files, [1.0] * len(files)
-    if source.suffix in (".npz", ".pkl", ".pickle") and source.is_file():
+    if source.suffix == ".npz" and source.is_file():
       return [source], [1.0]
     raise ValueError(
-      "Motion source must be an existing .npz/.pkl/.yaml file or directory. "
+      "Motion source must be an existing .npz/.yaml file or directory. "
       f"Got: {motion_source}"
     )
 

@@ -2,7 +2,7 @@
 
 Place motion assets here.
 
-By default, motion clips are loaded from the dataset referenced in [`motion_data_cfg.yaml`](/home/famadio/Workspace/RL/mjlab_playground/clamp/src/yahmp/config/g1/motion_data_cfg.yaml):
+By default, motion clips are loaded from the dataset referenced in [`motion_data_cfg.yaml`](../../src/yahmp/config/g1/motion_data_cfg.yaml):
 
 ```text
 assets/motions/g1_omomo_amass_clean
@@ -37,20 +37,3 @@ Supported NPZ layouts:
    This format stores precomputed body/world kinematics directly.
 
 Quaternion convention: `wxyz`
-
-## Compatibility note
-
-YAHMP is also compatible with the PKL motion format used by the TWIST2 dataset.
-Those PKLs typically store:
-
-- `root_pos`
-- `root_rot`
-- `dof_pos`
-
-and use `xyzw` quaternions for `root_rot` by default.
-
-To convert TWIST 2 dataset PKLs to NPZs, use:
-
-```text
-src/yahmp/scripts/data/convert_pkl_dataset_to_npz.py
-```

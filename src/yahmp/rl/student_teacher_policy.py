@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 import torch
 from rsl_rl.utils import resolve_callable
 
@@ -104,17 +102,6 @@ class YahmpStudentTeacherActorModel(YahmpActorModel):
     mlp_output = self.teacher.mlp(latent)
     self.teacher.distribution.update(mlp_output)
     return self.teacher.output_distribution_params
-
-  def load_distillation_state(
-    self,
-    student_state_dict: Mapping[str, torch.Tensor],
-    teacher_state_dict: Mapping[str, torch.Tensor],
-    strict: bool = True,
-  ) -> None:
-    super().load_state_dict(student_state_dict, strict=strict)
-    self.teacher.load_state_dict(teacher_state_dict, strict=strict)
-    self.loaded_teacher = True
-    self.teacher.eval()
 
   def train(self, mode: bool = True):
     super().train(mode)

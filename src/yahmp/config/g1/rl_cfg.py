@@ -3,15 +3,13 @@
 from mjlab.rl import RslRlModelCfg, RslRlPpoAlgorithmCfg
 
 from yahmp.rl import (
-  YahmpActionMatchingPpoAlgorithmCfg,
   YahmpKlMatchingPpoAlgorithmCfg,
   YahmpOnPolicyRunnerCfg,
   YahmpStudentOnPolicyRunnerCfg,
 )
 
-
-def _wandb_tags(*extra: str) -> tuple[str, ...]:
-  return extra
+DEFAULT_MAX_ITERATIONS = 20_000
+WANDB_PROJECT = "yahmp"
 
 
 def unitree_g1_yahmp_teacher_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
@@ -49,11 +47,11 @@ def unitree_g1_yahmp_teacher_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
       max_grad_norm=1.0,
     ),
     experiment_name="g1_yahmp_teacher",
-    wandb_project="yahmp",
-    wandb_tags=_wandb_tags("yahmp", "teacher", "privileged"),
+    wandb_project=WANDB_PROJECT,
+    wandb_tags=("yahmp", "teacher", "privileged"),
     save_interval=500,
     num_steps_per_env=24,
-    max_iterations=30_000,
+    max_iterations=DEFAULT_MAX_ITERATIONS,
     obs_groups={"actor": ("actor",), "critic": ("critic",)},
   )
 
@@ -93,113 +91,55 @@ def unitree_g1_yahmp_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
       max_grad_norm=1.0,
     ),
     experiment_name="g1_yahmp",
-    wandb_project="yahmp",
-    wandb_tags=_wandb_tags("yahmp", "history_encoder", "residual_actions"),
+    wandb_project=WANDB_PROJECT,
+    wandb_tags=("yahmp", "history_encoder", "residual_actions"),
     save_interval=500,
     num_steps_per_env=24,
-    max_iterations=30_000,
+    max_iterations=DEFAULT_MAX_ITERATIONS,
     obs_groups={"actor": ("actor",), "critic": ("critic",)},
   )
 
 
-def unitree_g1_yahmp_future_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
-  return YahmpOnPolicyRunnerCfg(
-    seed=1,
-    actor=RslRlModelCfg(
-      class_name="yahmp.rl.policy:YahmpFutureActorModel",
-      hidden_dims=(512, 512, 256, 128),
-      activation="elu",
-      obs_normalization=True,
-      distribution_cfg={
-        "class_name": "GaussianDistribution",
-        "init_std": 1.0,
-        "std_type": "log",
-      },
-    ),
-    critic=RslRlModelCfg(
-      class_name="yahmp.rl.policy:YahmpFutureCriticModel",
-      hidden_dims=(512, 512, 256, 128),
-      activation="elu",
-      obs_normalization=True,
-    ),
-    algorithm=RslRlPpoAlgorithmCfg(
-      value_loss_coef=1.0,
-      use_clipped_value_loss=True,
-      clip_param=0.2,
-      entropy_coef=0.005,
-      num_learning_epochs=5,
-      num_mini_batches=4,
-      learning_rate=1.0e-3,
-      schedule="adaptive",
-      gamma=0.99,
-      lam=0.95,
-      desired_kl=0.01,
-      max_grad_norm=1.0,
-    ),
-    experiment_name="g1_yahmp_future",
-    wandb_project="yahmp",
-    wandb_tags=_wandb_tags(
-      "yahmp", "future_encoder", "history_encoder", "residual_actions"
-    ),
-    save_interval=500,
-    num_steps_per_env=24,
-    max_iterations=30_000,
-    obs_groups={"actor": ("actor",), "critic": ("critic",)},
-  )
+def unitree_g1_yahmp_history20_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
+  cfg = unitree_g1_yahmp_ppo_runner_cfg()
+  cfg.experiment_name = "g1_yahmp_history20"
+  cfg.wandb_tags = ("yahmp", "history_encoder", "history20", "residual_actions")
+  return cfg
 
 
-def unitree_g1_yahmp_student_action_matching_rl_runner_cfg() -> (
-  YahmpStudentOnPolicyRunnerCfg
-):
-  return YahmpStudentOnPolicyRunnerCfg(
-    seed=1,
-    actor=RslRlModelCfg(
-      class_name="yahmp.rl.student_teacher_policy:YahmpStudentTeacherActorModel",
-      hidden_dims=(512, 512, 256, 128),
-      activation="elu",
-      obs_normalization=True,
-      distribution_cfg={
-        "class_name": "GaussianDistribution",
-        "init_std": 0.4,
-        "std_type": "log",
-      },
-    ),
-    critic=RslRlModelCfg(
-      class_name="yahmp.rl.policy:YahmpCriticModel",
-      hidden_dims=(512, 512, 256, 128),
-      activation="elu",
-      obs_normalization=True,
-    ),
-    algorithm=YahmpActionMatchingPpoAlgorithmCfg(
-      value_loss_coef=1.0,
-      use_clipped_value_loss=True,
-      clip_param=0.2,
-      entropy_coef=0.0025,
-      num_learning_epochs=5,
-      num_mini_batches=4,
-      learning_rate=5.0e-4,
-      schedule="adaptive",
-      gamma=0.99,
-      lam=0.95,
-      desired_kl=0.005,
-      max_grad_norm=1.0,
-      bc_coef_start=1.0,
-      bc_coef_end=0.05,
-      bc_anneal_iters=20_000,
-      bc_loss_type="mse",
-    ),
-    experiment_name="g1_yahmp_student_action_matching_rl",
-    wandb_project="yahmp",
-    wandb_tags=_wandb_tags("yahmp", "student", "action_matching_rl"),
-    save_interval=500,
-    num_steps_per_env=24,
-    max_iterations=20_000,
-    obs_groups={
-      "actor": ("actor",),
-      "critic": ("critic",),
-      "teacher": ("teacher_actor",),
-    },
+def unitree_g1_yahmp_no_history_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
+  cfg = unitree_g1_yahmp_ppo_runner_cfg()
+  cfg.actor.class_name = "rsl_rl.models:MLPModel"
+  cfg.critic.class_name = "rsl_rl.models:MLPModel"
+  cfg.experiment_name = "g1_yahmp_no_history"
+  cfg.wandb_tags = ("yahmp", "no_history", "residual_actions")
+  return cfg
+
+
+def unitree_g1_yahmp_no_residual_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
+  cfg = unitree_g1_yahmp_ppo_runner_cfg()
+  cfg.experiment_name = "g1_yahmp_no_residual"
+  cfg.wandb_tags = ("yahmp", "history_encoder", "direct_actions")
+  return cfg
+
+
+def unitree_g1_yahmp_stiff_pd_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
+  cfg = unitree_g1_yahmp_ppo_runner_cfg()
+  cfg.experiment_name = "g1_yahmp_stiff_pd"
+  cfg.wandb_tags = ("yahmp", "history_encoder", "residual_actions", "stiff_pd")
+  return cfg
+
+
+def unitree_g1_yahmp_q_only_ppo_runner_cfg() -> YahmpOnPolicyRunnerCfg:
+  cfg = unitree_g1_yahmp_ppo_runner_cfg()
+  cfg.experiment_name = "g1_yahmp_q_only"
+  cfg.wandb_tags = (
+    "yahmp",
+    "history_encoder",
+    "q_only_command",
+    "residual_actions",
   )
+  return cfg
 
 
 def unitree_g1_yahmp_student_kl_matching_rl_runner_cfg() -> (
@@ -242,11 +182,11 @@ def unitree_g1_yahmp_student_kl_matching_rl_runner_cfg() -> (
       kl_coef_anneal_iters=60_000,
     ),
     experiment_name="g1_yahmp_student_kl_matching_rl",
-    wandb_project="yahmp",
-    wandb_tags=_wandb_tags("yahmp", "student", "kl_matching_rl"),
+    wandb_project=WANDB_PROJECT,
+    wandb_tags=("yahmp", "student", "kl_matching_rl"),
     save_interval=500,
     num_steps_per_env=24,
-    max_iterations=20_000,
+    max_iterations=DEFAULT_MAX_ITERATIONS,
     obs_groups={
       "actor": ("actor",),
       "critic": ("critic",),

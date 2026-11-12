@@ -1,4 +1,4 @@
-"""Synchronized student/teacher joint-reference commands for distillation."""
+"""Synchronized joint-reference commands for teacher-guided training."""
 
 from __future__ import annotations
 

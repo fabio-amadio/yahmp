@@ -5,9 +5,9 @@ build-backend = "uv_build"
 [project]
 name = "yahmp"
 version = "0.1.0"
-description = "Standalone YAHMP task package for mjlab."
+description = "General motion tracking framework for the Unitree G1 based on mjlab."
 readme = { file = "README.md", content-type = "text/markdown" }
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [
@@ -15,7 +15,8 @@ authors = [
 ]
 dependencies = [
   "mjlab==1.2.0",
-  "onnxruntime-gpu>=1.24.3",
+  "onnx>=1.20.1",
+  "onnxruntime-gpu>=1.24.4",
 ]
 
 [project.scripts]
@@ -26,7 +27,6 @@ yahmp = "yahmp"
 
 [dependency-groups]
 dev = [
-  "pytest>=9.0.2",
   "ruff>=0.14.14",
 ]
 
@@ -37,6 +37,3 @@ indent-width = 2
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "B"]
 ignore = ["B011"]
-
-[tool.pytest.ini_options]
-addopts = "--strict-markers"

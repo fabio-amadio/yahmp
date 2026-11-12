@@ -2,6 +2,7 @@
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import dr
+from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.action_manager import ActionTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
 from mjlab.managers.event_manager import EventTermCfg
@@ -17,7 +18,10 @@ from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
 from yahmp import mdp
-from yahmp.mdp import JointRefAnchorRpMotionCommandCfg
+from yahmp.mdp import (
+  JointRefAnchorRpMotionCommandCfg,
+  JointRefOnlyAnchorRpMotionCommandCfg,
+)
 
 HISTORY_LENGTH = 10
 
@@ -131,27 +135,38 @@ def _current_motion_term() -> ObservationTermCfg:
   )
 
 
-def _history_term(*, include_privileged: bool = False) -> ObservationTermCfg:
+def _history_term(
+  *, history_length: int = HISTORY_LENGTH, include_privileged: bool = False
+) -> ObservationTermCfg:
   return ObservationTermCfg(
     func=mdp.YahmpObservationHistory,
     params={
       "command_name": "motion",
-      "history_length": HISTORY_LENGTH,
+      "history_length": history_length,
       "include_privileged": include_privileged,
     },
   )
 
 
-def _actions() -> dict[str, ActionTermCfg]:
-  return {
-    "joint_pos": mdp.ResidualJointPositionActionCfg(
+def _actions(action_type: str = "residual") -> dict[str, ActionTermCfg]:
+  if action_type == "residual":
+    action_cfg = mdp.ResidualJointPositionActionCfg(
       entity_name="robot",
       actuator_names=(".*",),
       scale=0.5,
       use_default_offset=False,
       command_name="motion",
     )
-  }
+  elif action_type == "direct":
+    action_cfg = JointPositionActionCfg(
+      entity_name="robot",
+      actuator_names=(".*",),
+      scale=0.5,
+      use_default_offset=True,
+    )
+  else:
+    raise ValueError(f"Unsupported YAHMP action type: {action_type}")
+  return {"joint_pos": action_cfg}
 
 
 def _events() -> dict[str, EventTermCfg]:
@@ -162,43 +177,6 @@ def _events() -> dict[str, EventTermCfg]:
       interval_range_s=(1.0, 3.0),
       params={"velocity_range": PUSH_VELOCITY_RANGE},
     ),
-    "push_end_effector": EventTermCfg(
-      func=mdp.apply_torque_limited_body_force,
-      mode="step",
-      params={
-        "asset_cfg": SceneEntityCfg("robot", body_names=()),
-        "duration_s": (0.5, 2.0),
-        "cooldown_s": (0.0, 0.5),
-        "joint_names": (
-          "waist_.*_joint",
-          ".*_shoulder_.*_joint",
-          ".*_elbow_joint",
-          ".*_wrist_.*_joint",
-        ),
-        "feasible_force_fraction_range": (0.05, 0.25),
-        "max_force_magnitude": 20.0,
-        "force_ramp_time_fraction": 0.15,
-        "dirichlet_alpha": 1.0,
-        "subtract_commanded_torque_margin": True,
-        "use_current_qvel_for_inverse_dynamics": True,
-        "body_point_offset": None,
-        "randomize_application_point": False,
-        "application_point_delta_range": None,
-        "randomize_body": True,
-        "eps": 1.0e-6,
-        "debug_force_vis_enabled": True,
-        "debug_force_vis_scale": 0.015,
-        "debug_force_vis_width": 0.01,
-      },
-    ),
-    # "base_mass": EventTermCfg(
-    #   mode="startup",
-    #   func=dr.pseudo_inertia,
-    #   params={
-    #     "asset_cfg": SceneEntityCfg("robot", body_names=()),  # Set in robot cfg.
-    #     "alpha_range": (0.0, 0.0),  # Set per robot cfg.
-    #   },
-    # ),
     "base_com": EventTermCfg(
       mode="startup",
       func=dr.body_com_offset,
@@ -212,17 +190,6 @@ def _events() -> dict[str, EventTermCfg]:
         },
       },
     ),
-    # "motor_strength": EventTermCfg(
-    #   mode="startup",
-    #   func=dr.pd_gains,
-    #   params={
-    #     "asset_cfg": SceneEntityCfg("robot"),
-    #     "kp_range": (0.95, 1.05),
-    #     "kd_range": (0.95, 1.05),
-    #     "distribution": "uniform",
-    #     "operation": "scale",
-    #   },
-    # ),
     "foot_friction": EventTermCfg(
       mode="startup",
       func=dr.geom_friction,
@@ -233,15 +200,6 @@ def _events() -> dict[str, EventTermCfg]:
         "shared_random": True,
       },
     ),
-    # "action_delay": EventTermCfg(
-    #   mode="interval",
-    #   func=dr.sync_actuator_delays,
-    #   interval_range_s=(0.02, 0.02),
-    #   params={
-    #     "asset_cfg": SceneEntityCfg("robot"),
-    #     "lag_range": (0, 1),
-    #   },
-    # ),
   }
 
 
@@ -309,12 +267,6 @@ def _rewards() -> dict[str, RewardTermCfg]:
       weight=-10.0,
       params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
     ),
-    # Keep this commented out while using the no-self-collision G1 preset.
-    # "self_collisions": RewardTermCfg(
-    #   func=tracking_mdp.self_collision_cost,
-    #   weight=-10.0,
-    #   params={"sensor_name": "self_collision"},
-    # ),
   }
 
 
@@ -352,20 +304,35 @@ def _terminations() -> dict[str, TerminationTermCfg]:
   }
 
 
-def make_env_cfg() -> ManagerBasedRlEnvCfg:
+def _motion_command(command_type: str) -> CommandTermCfg:
+  if command_type == "q_qdot":
+    return JointRefAnchorRpMotionCommandCfg(**_motion_command_kwargs())
+  if command_type == "q_only":
+    return JointRefOnlyAnchorRpMotionCommandCfg(**_motion_command_kwargs())
+  raise ValueError(f"Unsupported YAHMP motion command type: {command_type}")
+
+
+def make_env_cfg(
+  history_length: int = HISTORY_LENGTH,
+  command_type: str = "q_qdot",
+  action_type: str = "residual",
+  include_history: bool = True,
+) -> ManagerBasedRlEnvCfg:
   """Create the YAHMP direct-PPO task template with history encoding only."""
   actor_terms = {
     "command": _current_motion_term(),
     **_proprio_policy_terms(),
-    "history": _history_term(),
   }
+  if include_history:
+    actor_terms["history"] = _history_term(history_length=history_length)
 
   critic_terms = {
     "command": _current_motion_term(),
     **_proprio_critic_terms(),
-    "policy_history": _history_term(),
     **_privileged_terms(),
   }
+  if include_history:
+    critic_terms["policy_history"] = _history_term(history_length=history_length)
 
   observations = {
     "actor": ObservationGroupCfg(
@@ -380,14 +347,12 @@ def make_env_cfg() -> ManagerBasedRlEnvCfg:
     ),
   }
 
-  commands: dict[str, CommandTermCfg] = {
-    "motion": JointRefAnchorRpMotionCommandCfg(**_motion_command_kwargs())
-  }
+  commands: dict[str, CommandTermCfg] = {"motion": _motion_command(command_type)}
 
   return ManagerBasedRlEnvCfg(
     scene=SceneCfg(terrain=TerrainEntityCfg(terrain_type="plane"), num_envs=1),
     observations=observations,
-    actions=_actions(),
+    actions=_actions(action_type=action_type),
     commands=commands,
     events=_events(),
     curriculum={},

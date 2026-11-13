@@ -129,7 +129,7 @@ Run the nominal policy directly in MuJoCo:
 ```bash
 uv run python -m yahmp.scripts.deploy.run_yahmp_onnx_mujoco \
   --task-id Mjlab-YAHMP-Unitree-G1 \
-  --onnx-path assets/models/exported_policy.onnx \
+  --onnx-path assets/models/g1_yahmp.onnx \
   --motion-file assets/motions/g1_omomo_amass_clean/<motion-name>.npz
 ```
 

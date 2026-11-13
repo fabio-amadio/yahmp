@@ -23,10 +23,7 @@ class Args:
 
 def _default_input_root() -> Path:
   return (
-    Path(__file__).resolve().parents[4]
-    / "assets"
-    / "motions"
-    / "g1_omomo_amass_clean"
+    Path(__file__).resolve().parents[4] / "assets" / "motions" / "g1_omomo_amass_clean"
   )
 
 
